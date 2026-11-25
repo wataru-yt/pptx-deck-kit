@@ -137,6 +137,22 @@ python3 <スキルの置き場所>/pptx-deck-design/scripts/theme_from_pptx.py �
 - 線の絵（人・データベース・クラウドなど）を同梱している。資料の色の組に合わせて `scripts/tint_icons.py` で塗り直して使う。[Lucide](https://lucide.dev)（ISC）と [Tabler Icons](https://tabler.io/icons)（MIT）から作った。表記は `THIRD_PARTY_NOTICES.md`
 - 他社の製品・会社のロゴ（Slack・GitHub など）は、各社の商標なので同梱していない。資料に使うときは、各社の公式サイトから `scripts/fetch_icon.py` で取ってくる
 
+## このプラグインを直すとき
+
+入れた版を使わずに、手元の作業中のプラグインで Claude Code を開く（そのセッションだけ。直した後は `/reload-plugins`）。
+
+```bash
+claude --plugin-dir plugins/pptx-deck-kit
+```
+
+公開する前に、公開中の版と比べて、見本から作る pptx が変わっていないかを確かめる（初めは `plugins/pptx-deck-kit` で `npm install`）。違いが出たら、意図した変更かを画像で確かめる。
+
+```bash
+python3 scripts/check_output.py
+```
+
+入れた人に更新を届けるには、`plugins/pptx-deck-kit/.claude-plugin/plugin.json` の `version` を上げる（`package.json`・`package-lock.json` も合わせる）。
+
 ## ライセンス
 
 MIT。`LICENSE` を参照。
