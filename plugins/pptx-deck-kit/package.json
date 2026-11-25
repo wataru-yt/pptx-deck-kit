@@ -1,6 +1,6 @@
 {
   "name": "pptx-deck-kit",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "deck-parts.js が使う npm の部品（プラグインを入れると自動で入る）",
   "dependencies": {

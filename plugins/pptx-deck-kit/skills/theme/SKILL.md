@@ -16,7 +16,7 @@ description: pptx 資料の見た目（会社の色・ロゴ・書体・文字�
 | `~/.claude/pptx-deck/theme.json` | その人のすべての資料 |
 | プロジェクトの `.claude/pptx-deck/theme.json` | そのプロジェクトの資料だけ（チームで共有できる） |
 
-優先は、build.js の指定 ＞ プロジェクト ＞ 個人 ＞ プラグインの既定。テーマに会社の色があれば、build.js に書いた色より会社の色が勝つ。書ける項目と範囲は `<plugin>/skills/pptx-deck-design/references/tokens.md` の「テーマ」の表。既成のテーマは `<plugin>/skills/pptx-deck-design/assets/themes/`（standard・corporate・pitch）。
+優先は、build.js の指定 ＞ プロジェクト ＞ 個人 ＞ プラグインの既定。テーマに会社の色があれば、build.js に書いた色より会社の色が勝つ。書ける項目と範囲は `<plugin>/skills/pptx-deck-design/references/tokens.md` の「テーマの設定の項目」の表。既成のテーマは `<plugin>/skills/pptx-deck-design/assets/themes/`（standard・corporate・pitch）。
 
 ## A. 設定が無いときに、最初の1回だけ聞く
 
@@ -37,7 +37,7 @@ pptx-deck-design で資料を作り始めるとき、個人にもプロジェク
 1. 頼まれた内容から、テーマの JSON を組み立てる。今のファイルがあれば読み、頼まれた所だけ変える
    - 会社の pptx を渡されたら：`python3 <plugin>/skills/pptx-deck-design/scripts/theme_from_pptx.py <pptx> <一時の theme.json> --logo-out <保存先のフォルダ>`。どの色を強調の色に当てたか、何を読み取れなかったかを利用者に伝える。ロゴは推測で取るので、取れた画像を見せて合っているか確かめる
    - 色だけなら `colors.emph`（強調の色）を中心に。「緑」のような言葉なら、6桁の色に直して伝える（例 `00806E`）。ロゴは画像のファイルを受け取り、theme.json と同じフォルダへ写して `footer.logo`・`cover.logo` に相対パスで書く
-   - 「文字を大きく・小さく」は `sizes`。下限（本文・注 14pt、リード 18pt、主役の値 24pt）より小さくは頼まれてもしない。理由を一言添える
+   - 「文字を大きく・小さく」は `sizes`。テーマで下げられる下限（題 20pt、リード 18pt、やや大きい文字・名前・本文・注 14pt、主役の値 24pt）より小さくは頼まれてもしない（下回る値は部品が下限に直して警告する）。理由を一言添える
 2. 保存する前に見本を見せる：
    - `node <plugin>/skills/theme/scripts/theme_preview.js <一時の theme.json> <一時の preview.pptx>`（表紙・棒グラフ・工程の流れの3ページ）
    - `bash <plugin>/skills/pptx-build-sync/scripts/render_pptx.sh <preview.pptx> <出力フォルダ> 70`（PowerPoint が使えなければ前に `RENDER_WITH=libreoffice` を付ける）

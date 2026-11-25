@@ -67,12 +67,12 @@ const CAT_ALT = ["5B8DB8", "6BAA8C", "E0A030", "9A86C2"];
 const STICKY = { yellow: "FFF1A6", pink: "FFD9E2", blue: "CFE6FF", text: "1D2433", off: "6B7280" };
 
 // 文字の段（5.2）。本文に使うのはこの6段だけ。太さは bold と regular の2段
-// 小さい文字の段（本文 10.5・注 9.5）は、2026-11-24 に 12pt へ上げた。映して見せる資料で読める大きさの下限
+// 小さい文字の段は、2026-11-24 に上げた（本文 10.5・注 9.5 → 12 → 案B の 16）。映して見せる資料で読める大きさ
 // 案B、2026-11-24：映して見せて読める大きさ。本文 16・名前 18・やや大きい文字 20（12pt の版は、横 13.33in の版では小さすぎた）
 const FS = { title: 26, lead: 20, head: 18, block: 18, body: 16, note: 16 };
-// リードの行の大きさ（2026-11-24）：映して見せる資料で、主張の1文が本文と同じくらいに見えないよう、題（26pt）に次ぐ大きさにする。FS.lead（15pt）は図の中の文字として残す
+// リードの行の大きさ（2026-11-24）：映して見せる資料で、主張の1文が本文と同じくらいに見えないよう、題（26pt）に次ぐ大きさにする。FS.lead（20pt）は図の中のやや大きい文字として残す
 let LEAD_FS = 22; // テーマの sizes.lead で替わる（下限 18）
-// グラフの見る所（2026-11-24）：見る所の値は 28pt・強調の色（問題なら赤）、見る所の線は 3pt。他の線は 1.25pt、棒は灰
+// グラフの見る所（2026-11-24）：見る所の値は 36pt（FOCUS_FS）・強調の色（問題なら赤）、見る所の線は 3pt。他の線は 1.25pt、棒は灰
 let FOCUS_FS = 36; const FOCUS_LW = 3; // FOCUS_FS はテーマの sizes.focus で替わる（下限 24）
 // 表紙・章扉・目次・数値の強調だけで使う大きさ（5.2）
 const FS_DISPLAY = { cover: 48, chapter: 30, chapterLong: 26, chapterNum: 20, agendaNo: 20, agendaHead: 16, num: 22 };
@@ -422,7 +422,7 @@ function createDeck(pres, opts = {}) {
 
   // ---- 基本の描画 ----
   // 文字：余白0・左上揃えを既定にする（座標がそのまま見た目の位置になる）。書体は Yu Gothic 1つ（5.2）
-  // 灰の小さな文（補足）を見つける：9.5pt 以下・灰か薄い色・8字を超える文。フッター（inFooter）は除く
+  // 灰の小さな文（補足）を見つける：14pt 未満・灰か薄い色・8字を超える文。フッター（inFooter）は除く
   let inFooter = false; const FAINT_SEEN = new Set();
   const checkFaint = (text, o) => {
     if (inFooter || !page || !o) return;
@@ -440,7 +440,7 @@ function createDeck(pres, opts = {}) {
   const BIGF = {}, CHARTP = {};
   const noteBig = (text, o) => { if (inFooter || !page || !o) return; const runs = Array.isArray(text) ? text.map(r => ({ fs: (r && r.options && r.options.fontSize) || o.fontSize, c: (r && r.options && r.options.color) || o.color, t: (r && r.text) || "" })) : [{ fs: o.fontSize, c: o.color, t: String(text) }]; if (runs.some(r => (r.fs ?? 0) >= 24 && (r.c === C.emph || r.c === C.accent || r.c === C.white || r.c === "FFFFFF") && String(r.t).trim())) BIGF[page] = (BIGF[page] || 0) + 1; };
   const chartPage = () => { if (page) CHARTP[page] = true; };
-  // 見る所の値：28pt・太字・強調の色（problem なら赤）。グラフの見る所のすぐ隣に置く
+  // 見る所の値：36pt（FOCUS_FS）・太字・強調の色（problem なら赤）。グラフの見る所のすぐ隣に置く
   // 見る所の値は、その要素の普通の値の位置に書く（棒なら棒の上、区画なら区画の中）。塗りの上に置くときは onFill で白にする
   const focusValue = (s, text, box, o = {}) => T(s, text, { fontSize: FOCUS_FS, bold: true, color: o.onFill ? C.white : o.problem ? C.accent : C.emph, valign: "middle", wrap: false, h: 0.5, ...box });
   // 部品が主役の値を自分で描くときの補助（2026-11-24）。呼ぶ側で値を空にして focusValue を手で置くと、隣の棒・値との重なりを部品が知らないので重なる
@@ -459,7 +459,15 @@ function createDeck(pres, opts = {}) {
   };
   // 面の中の文字の大きさ：面の高さから決め（行の高さの約 1/1.6）、幅に入るまで下げる。下限 16pt・上限 28pt（構成比の区画、ツリーマップ）
   const areaFs = (text, w, h, lines = 1, lo = FS.body, hi = 28) => { let f = Math.max(lo, Math.min(hi, Math.floor(h * 72 / (lines * 1.6)))); const t = String(text).split("\n").reduce((a, b) => (em(b) > em(a) ? b : a), ""); while (f > lo && textW(t, f) > w - 0.16) f -= 1; return f; };
-  const T = (s, text, o) => (noteBrands(text), checkFaint(text, o), noteBig(text, o), s.addText(unGrayText(text), { fontFace: F, color: C.ink, margin: 0, isTextBox: true, valign: "top", ...o, ...(o && o.color ? { color: unGray(o.color) } : {}) }));
+  // 文字の大きさの下限（2026-11-25）：図の中の文字は 16pt 以上。14pt は密な図（スイムレーンの工程名）だけ。フッターと表紙の外は除く
+  const SMALL_SEEN = new Set(); let smallOK = false; // smallOK：付箋のボード（ブレストの量を優先する例外）を描く間だけ点検しない
+  const checkSmall = (text, o) => {
+    if (inFooter || smallOK || !page || !o) return;
+    const runs = Array.isArray(text) ? text.map(r => ({ t: (r && r.text) || "", fs: (r && r.options && r.options.fontSize) || o.fontSize })) : [{ t: String(text), fs: o.fontSize }];
+    const r = runs.find(x => x.fs != null && x.fs < 14 && x.t.trim());
+    if (r && !SMALL_SEEN.has(page)) { SMALL_SEEN.add(page); warn(`図の中に ${r.fs}pt の文字がある（「${r.t.replace(/\n/g, "").slice(0, 14)}」）。図の中の文字は 16pt 以上（密な図だけ 14pt）。入らないなら言葉を縮めるか、項目を減らす`); }
+  };
+  const T = (s, text, o) => (noteBrands(text), checkFaint(text, o), checkSmall(text, o), noteBig(text, o), s.addText(unGrayText(text), { fontFace: F, color: C.ink, margin: 0, isTextBox: true, valign: "top", ...o, ...(o && o.color ? { color: unGray(o.color) } : {}) }));
   // 細線 0.75pt line 色（5.5）。罫線はこれだけ
   const hline = (s, x, y, w, o = {}) => s.addShape(SH.LINE, { x, y, w, h: 0, line: { color: C.line, width: 0.75, ...o } });
   // 2点を結ぶ線（右上がり・右下がりを flipV で表す。負の幅を作らない：9章「負の幅の線でファイル破損」）
@@ -687,7 +695,7 @@ function createDeck(pres, opts = {}) {
     return s;
   };
 
-  // ミニ目次：右上 y0.38、9.5pt 右揃え。全ページで同じ項目・同じ位置、現在の章だけ ink bold（4.12 miniAgenda）。finalize で全ページに一括で描く
+  // ミニ目次：右上 y0.38、FS.note（16pt）右揃え。全ページで同じ項目・同じ位置、現在の章だけ ink bold（4.12 miniAgenda）。finalize で全ページに一括で描く
   const miniTokens = () => {
     const NUM = "①②③④⑤⑥⑦⑧⑨";
     const toks = [];
@@ -949,7 +957,7 @@ function createDeck(pres, opts = {}) {
   };
 
   // 前面のメッセージボックス：同じ図を背面に敷いたページで、分かったことを図の上に重ねて示す（4.9・4.11）
-  //   白箱に ink 1pt の枠＋弱い影、見出し 13pt bold＋説明 soft。o.to で指す位置へ赤の線（視線誘導）を引き、先端に小さな丸
+  //   白箱に ink 1pt の枠＋弱い影、見出し FS.head（18pt）bold＋説明 FS.body（16pt）soft。o.to で指す位置へ赤の線（視線誘導）を引き、先端に小さな丸
   //   o: { x, y, w, h, head, body?, to?: [x, y] | toRange?: [[x1, y], [x2, y]]（範囲を指す）, num?（左上に紺の番号丸）, refKey?（右下に「P.n」、根拠のページ）, refPrefix? }
   const messageBox = (s, o) => {
     if (o.head && em(o.head) > 20) warn(`メッセージボックスの見出しが長い（全角${Math.round(em(o.head))}字。20字まで）：${o.head}`);
@@ -1020,7 +1028,8 @@ function createDeck(pres, opts = {}) {
   // ---- 付箋ボード ----
   // ブレスト専用。帯（区分）を上から、帯の中のまとまりを左から並べる。選んだ付箋だけ不透明＋赤枠＋赤の番号丸、他は透過45・灰字。傾けない
   //   o.bands: [{ key, name, color, rows }], o.items: [{ band, group, text, pick? }], o.y0, o.sh（付箋の高さ）, o.fs（本文の文字。既定 5.5 の例外）
-  const stickyBoard = (s, o) => {
+  const stickyBoard = (s, o) => { smallOK = true; try { return stickyBoard0(s, o); } finally { smallOK = false; } };
+  const stickyBoard0 = (s, o) => {
     const items = o.items, bands = o.bands, key = items.some(d => d.pick);
     const lw = o.labelW ?? 1.0, x0 = M + lw + 0.1, cgap = 0.16, sg = 0.05, sh = o.sh ?? 0.5, rg = 0.045, th = 0.22, bg = o.bandGap ?? 0.12, fz = o.fs ?? 5.5;
     const groupsOf = b => [...new Set(items.filter(d => d.band === b.key).map(d => d.group))];
@@ -1196,7 +1205,7 @@ function createDeck(pres, opts = {}) {
   // ---- 図形で描く数値の図 ----
   // 数の書式：負は全角のマイナス、plus で正に「+」を付ける
   const fmtNum = (v, o = {}) => { const a = Math.abs(v), t = o.digits != null ? a.toFixed(o.digits) : a.toLocaleString(); return (v < 0 ? "−" : o.plus && v > 0 ? "+" : "") + t + (o.unit || ""); };
-  // 図の左上の見出し：何の数値か（単位・時点）を 9.5pt gray で、全ページ同じ位置（x M、y 本文の上端）に置く。凡例はその右に同じ行で並べる
+  // 図の左上の見出し：何の数値か（単位・時点）を FS.body（16pt）soft で、全ページ同じ位置（x M、y 本文の上端）に置く。凡例はその右に同じ行で並べる
   //   legend: [[名前, 色], ...]（棒・帯と同じ並び）。区分名を図の中（右端の棒の横など）に置けるなら凡例は置かない
   const figHead = (s, text, legend, o = {}) => {
     const y = o.y ?? Y.body, x = o.x ?? M;
@@ -1665,7 +1674,7 @@ function createDeck(pres, opts = {}) {
     if (v > 0 && v < 4) s.addShape(SH.PIE, { x: cx - d / 2, y: cy - d / 2, w: d, h: d, angleRange: [270, (270 + 90 * v) % 360], fill: { color: C.ink }, line: { type: "none" } }); // 丸の塗りは1色（強調の色は見る所の枠だけ）
   };
   // 比較の表
-  //   o.cols: [{ head, sub?（単位など。見出しの2行目に 9.5pt gray）, w?, align?: "left"|"right", base?（比べる基準＝現状の列。見出しと値を soft）, strong?（推奨・選ぶ列。列全体を ink の枠で囲む）, tag?（見出しの上の札。例 "推奨"） }]
+  //   o.cols: [{ head, sub?（使わない。警告が出る。単位は見出しの名前に「（万円）」のように書く）, w?, align?: "left"|"right", base?（比べる基準＝現状の列。見出しと値を soft）, strong?（推奨・選ぶ列。列全体を ink の枠で囲む）, tag?（見出しの上の札。例 "推奨"） }]
   //   o.rows: [{ label, sub?, group?（この行から始まる群の名前。例 "効果"）, strong?（選ぶ1行。帯を濃くし ink の枠）, cells: [cell, ...] }]
   //   o.judge: { label, cells }（最後の「判断」の行。各案を選ぶ・選ばない理由を1行で。結論は表の中に置く）
   //   cell: 文字列・数値 | null（"—"） | { text, bold?, problem?（赤字） } | { ball: 0〜4, text }（ハーベイボール＋根拠） | { bar: 値, max, text, main? }（割合などの横棒＋値）
@@ -1673,7 +1682,7 @@ function createDeck(pres, opts = {}) {
   //   強調は1ページ1か所: 列の strong か、行の strong のどちらか一方。太字にするのは選択肢名と決め手の値（cell.bold）だけ
   const compareTable = (s, o) => {
     // 表の組み方（2026-11-24）：(1) 行を詰める。行の高さは文字の約2倍で、本文の領域に合わせて引き伸ばさない（間が広いと、行にも列にも見えず、語が散って見える）
-    //   (2) 値を主役にする。値は濃い 14pt、行の名前と列の見出しは控えめな 12pt（枠組みの文字が値より目立つと、値が後回しになる）
+    //   (2) 値を主役にする。値は濃い 18pt、行の名前と列の見出しは控えめな 16pt（枠組みの文字が値より目立つと、値が後回しになる）
     //   (3) 1つの表には、同じ種類の値だけを入れる（数値・語・評価の丸を混ぜると、列を縦に読めない）。表の幅は中身に合わせる
     const x0 = o.x ?? M, wAll = o.w ?? BW, cg = o.colGap ?? 0.4, fs = o.fs ?? 18, hfs = fs - 2, lfs = fs - 2, pad = 0.1; // 値 18pt、行の名前と列の見出し 16pt（案B）
     const textOf = c => c == null ? "—" : typeof c === "object" ? String(c.text ?? (c.stars != null ? `★${c.stars}` : c.ball != null ? `●${c.ball}` : "")) : String(c);
@@ -1724,7 +1733,7 @@ function createDeck(pres, opts = {}) {
     const stretch = 0; // 行は引き伸ばさない。表は詰めて置き、余った場所は空けておく（結論を横に置くなら o.note）
     rows.forEach(x => { x.h += stretch; });
     const jH = judgeH + (o.judge ? stretch : 0);
-    // 見出し：選択肢名は 12pt bold ink（基準の列だけ soft）。単位は2行目に 9.5pt gray。札は見出しの上
+    // 見出し：選択肢名は 16pt bold（推奨の列は ink、他は soft）。単位は2行目に 9.5pt gray。札は見出しの上
     const headY = y0 - 0.66;
     o.cols.forEach((c, j) => {
       const [x0c, w0c] = xs[j], al = colAlign[j];
@@ -1775,7 +1784,7 @@ function createDeck(pres, opts = {}) {
       T(s, textOf(c), { x: cellFocus ? x + 0.08 : x, y, w: w - (cellFocus ? 0.16 : 0.05), h, fontSize: focusFsOf(c), // 決め手のセルは、塗りと枠に加えて、数値と短い語は文字も大きくする
         color: c == null ? C.pale : (bold ? C.ink : color), bold, align: al, valign: "middle", lineSpacingMultiple: 1.15 });
     };
-    // 行：1行に1本の帯（行見出しも帯の中）。群の名前は帯の上に 9.5pt gray bold、群の間は広い余白で分ける
+    // 行：見出しの下に線1本、行の間は薄い細線。群の名前は行の上に FS.note（16pt）gray bold、群の間は広い余白で分ける
     let y = y0; const rowY = [], bandX = x0, bandW = right - x0;
     // 表の形（2026-11-24）：行の全幅に背景色を敷かない。見出しと本文を線1本で分け、行の間は薄い細線と余白で分ける。縦線・外枠・縞模様は使わない
     hline(s, bandX, y0 - 0.05, bandW, { color: C.gray, width: 1 });
@@ -1952,7 +1961,7 @@ function createDeck(pres, opts = {}) {
   // 2軸の図：ポジショニングマップと、項目を入れる2×2を1つの関数で描く
   //   チープに見えた原因と対策:
   //     点が小さく全部同じ（0.16in の灰の点）     → 点を第3の量（売上・利用者数）の大きさのバブルにする。量が無くても 0.34in 以上
-  //     名前が薄く小さい（灰の 10.5pt）           → 名前は ink 12pt、補足は soft 10.5pt の2段。自社は 13pt bold
+  //     名前が薄く小さい（灰の 10.5pt）           → 名前は ink 16pt（FS.body）、自社は 18pt bold（FS.block）。補足の2段目（sub）は使わない
   //     名前が点・軸・他の名前と重なる            → 8方向の候補から、重なりの一番少ない位置を自動で選ぶ（pos で固定もできる）
   //     象限が空の箱で、軸の意味が角の小さな灰字   → 軸は中央で交わる両矢印、両端に意味を bold で書き、高い側に軸の名前を添える
   //     空白地帯が細い破線の楕円と小さな灰字       → 地の上に白く抜いた楕円（＝誰もいない所）に、見出しと説明を ink／soft で
@@ -2059,9 +2068,9 @@ function createDeck(pres, opts = {}) {
 
   // アーキテクチャ図：AWS の構成図のように、アイコンのノード・まとまりの領域・鉤の矢印で仕組みを描く
   //
-  //   ノード＝アイコンの札（正方形）＋名前 12pt bold＋小さい説明 10.5pt soft。アイコンは opts.iconDir の PNG（icons/make-icons.js が作る。ブランドは実物の色、汎用は ink）
+  //   ノード＝アイコンの札（正方形）＋名前 FS.block（18pt）bold＋短い説明 FS.body（16pt）soft。アイコンは opts.iconDir の PNG（icons/make-icons.js が作る。ブランドは実物の色、汎用は ink）
   //   まとまり（社内・AWS・外部のサービスなど）は、薄い塗りの領域（style "fill"）か破線の境界（style "dash"）で囲み、左上に印と名前。入れ子にしてよい（AWS の中の社内の網など）
-  //   線は鉤に折った矢印（soft 1.25pt）。社外・非同期のやり取りは灰の破線。ラベルは線の一番長い区間の脇に 10.5pt soft で短く
+  //   線は鉤に折った矢印（soft 1.25pt）。社外・非同期のやり取りは灰の破線。ラベルは線の一番長い区間の脇に FS.body（16pt）soft で短く
   //   強調は1種類：主役のノード（strong＝濃い塗り＋ink 枠）か、問題のノード（problem＝赤枠＋赤字）か、線（strong＝ink 2pt／problem＝赤 2pt）
   //   示唆は前面の番号つきの箱（o.notes、または同じ図を echo で敷いて戻り値の note で重ねる）。本筋でない区画（計測・運用など）は描かない
   //   座標は格子：本文の領域（x, y, w, h）を cols 列 × rows 行に割り、ノードは列 c・行 r（0 始まり。0.5 刻みなど小数も可）の升の中央に置く
@@ -2553,7 +2562,7 @@ function createDeck(pres, opts = {}) {
   //         箱を横に並べて赤い戻り矢印でつないだ形は、繰り返しが「一方通行＋例外の戻り」に見えた。円を区画に分ければ、どこからでも次へ同じ向きに進むことが形で分かる。下の別のメッセージ欄は作らない
   //   o.steps: [{ name, body?, meta?: [[ラベル, 値], ...], problem?, strong? }]（3〜6。上の始点から時計回り）
   //     problem＝繰り返しのたびに詰まる区画（白地＋赤 2pt 枠、番号と名前を赤）、strong＝問題ではない主役の区画（濃い塗り＋ink 枠）。1ページでどちらか1種類だけ
-  //   o.center: { label?, value?, note? }（label＝回すもの 13pt bold、value＝回数 22pt bold、note＝主張・前提 10.5pt。環の内側に入る長さにする）
+  //   o.center: { label?, value?, note? }（label＝回すもの FS.head（18pt）bold、value＝回数 22pt bold、note＝主張・前提 FS.body（16pt）。環の内側に入る長さにする）
   //   o.cx, o.cy, o.R（外の半径。既定は本文の高さの半分）, o.thick（環の太さ 0.62）, o.start（最初の区画の始まりの角度。既定は名前が環の真上・真下に来ない角度）, o.y0, o.bottom
   //   o.only: [工程の番号]（その区画と名前だけを描く。echo の keep で使う）
   //   戻り値: { seg(i) → { a0, a1, mid, at: [x, y]（区画の中心） }, label(i) → {x, y, w, h}, anchor(i) → [x, y], center → {x, y, w, h}, cx, cy, R, r }
@@ -3983,8 +3992,8 @@ function createDeck(pres, opts = {}) {
 
   const finalize = async outPath => {
     LATER.forEach(fn => fn());
-    // グラフのページ：見る所の値（28pt・強調の色）が1つだけあるか
-    FOCUS.forEach(f => { if (!CHARTP[f.page] || f.focus === false) return; const n = BIGF[f.page] || 0; if (!n) console.warn(`[deck-parts] P.${f.page} グラフの見る所の値が無い。見る所の値を 28pt・強調の色で、見る所の隣に書く（focusValue）`); else if (n > 1) console.warn(`[deck-parts] P.${f.page} 見る所の大きな値が ${n} つある。強調の色の大きな値は1つにする`); });
+    // グラフのページ：見る所の値（FOCUS_FS・強調の色）が1つだけあるか
+    FOCUS.forEach(f => { if (!CHARTP[f.page] || f.focus === false) return; const n = BIGF[f.page] || 0; if (!n) console.warn(`[deck-parts] P.${f.page} グラフの見る所の値が無い。見る所の値を ${FOCUS_FS}pt・強調の色で、見る所の隣に書く（focusValue か、部品の focusValue の口）`); else if (n > 1) console.warn(`[deck-parts] P.${f.page} 見る所の大きな値が ${n} つある。強調の色の大きな値は1つにする`); });
     // 外部の製品・会社：図の中に名前があるのに、そのページにアイコンが無ければ知らせる
     Object.keys(BRANDS_ON).forEach(pg => Object.keys(BRANDS_ON[pg]).forEach(k => { if (!(ICONS_ON[pg] || {})[k]) console.warn(`[deck-parts] P.${pg} 外部の製品・会社（${k}）を図に出しているが、アイコンが無い。公式のアイコンを取得して icons/ に置き、名前の横に置く（scripts/fetch_icon.py）`); }));
     // 線の絵の色：資料の色の組（文字の色・強調の色）で塗ってあるかを確かめる

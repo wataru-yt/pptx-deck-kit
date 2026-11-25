@@ -13,12 +13,12 @@ pptxgenjs 4.0.1 で確認した内容。
 - オプションのオブジェクトは pptxgenjs が書き換える。使い回さず、呼び出しごとに新しく作る。
 - ハイパーリンクは `hyperlink: { url: encodeURI("../資料/x.xlsx") }`。pptx からの相対パスで書く。
 - 注記は `slide.addNotes("...")`。
-- **日本語の禁則が効かない。** pptxgenjs は文字に `lang="en-US"` を書くため、PowerPoint で行頭に「、」「）」が来る。書き出し後に全スライドの XML で `lang="en-US"` を `lang="ja-JP"` に置き換える（`assets/build-template.js` の書き出し処理に実装済み）。
+- **日本語の禁則が効かない。** pptxgenjs は文字に `lang="en-US"` を書くため、PowerPoint で行頭に「、」「）」が来る。書き出し後に全スライドの XML で `lang="en-US"` を `lang="ja-JP"` に置き換える（`pptx-deck-design` の `assets/deck-parts.js` の `finalize` に実装済み）。
 
 ## グラフ
 
 - `addChart(pres.charts.BAR, series, opts)`。積み上げは `barGrouping: "stacked"`。軸の上限は `valAxisMaxVal` / `valAxisMinVal` / `valAxisMajorUnit`。
-- **棒ごとの透明度は書けない**。書き出し後に zip を開き、`ppt/charts/chartN.xml` の各 `<c:ser>` に `<c:dPt>`（`idx` と `alpha` 付きの `spPr`）を足す。`assets/build-template.js` の `fadeBars` が実装例。`<c:dPt>` は `<c:invertIfNegative>` の直後に入れる。対象のグラフはタイトルの語で見分ける。
+- **棒ごとの透明度は書けない**。書き出し後に zip を開き、`ppt/charts/chartN.xml` の各 `<c:ser>` に `<c:dPt>`（`idx` と `alpha` 付きの `spPr`）を足す。`pptx-deck-design` の `assets/deck-parts.js` の `barChart`（`highlight`）と `finalize` が実装例。`<c:dPt>` は `<c:invertIfNegative>` の直後に入れる。対象のグラフはタイトルの語で見分ける。
 - 図の上に重ねる注記（点・線・ラベル）はグラフの座標と一致させる。グラフの内側の位置は自動配置なので、重ねる図形は「グラフを置いた後に実測した座標」で固定する。
 
 ## pptx を比べるとき

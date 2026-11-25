@@ -1,0 +1,6 @@
+{
+  "colors": { "emph": "00806E" },
+  "font": { "heading": "Meiryo" },
+  "footer": { "style": "band", "copyright": "© Example Inc.", "confidential": "社外秘", "logo": "logo.png" },
+  "cover": { "style": "full", "affil": "株式会社エグザンプル 情報システム部", "logo": "logo-cover.png" }
+}
