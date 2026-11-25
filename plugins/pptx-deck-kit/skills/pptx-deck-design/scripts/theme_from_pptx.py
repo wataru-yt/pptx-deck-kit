@@ -2,13 +2,16 @@
 """会社の pptx（または .potx・.thmx）から、pptx-deck-design のテーマの JSON を作る。
 
 使い方:
-  python3 theme_from_pptx.py <pptx|potx|thmx> <出力の theme.json> [--logo-out <フォルダ>]
+  python3 theme_from_pptx.py <pptx|potx|thmx> <出力の theme.json> [--logo-out <フォルダ>] [--no-design]
+          [--cover <レイアウト名>] [--chapter <名前>] [--content <名前>] [--drop-text <文字,文字>]
+          [--cover-slide <番号>] [--chapter-slide <番号>] [--content-slide <番号>]（デザインがスライドに直接描かれているとき）
 
-読むもの（標準ライブラリの zipfile と xml だけで読む。元のファイルは書き換えない）:
+読むもの（色・書体・ロゴ・フッターは標準ライブラリの zipfile と xml だけで読む。元のファイルは書き換えない）:
   - スライドマスターが使うテーマ（ppt/theme/themeN.xml）の色：dk1・lt1・dk2・lt2・accent1〜6・hlink
   - 同じテーマの書体：major（見出し）と minor（本文）の latin・ea（無ければ日本語の script="Jpan"）
   - スライドマスターにある画像から、ロゴらしいもの（名前に logo を含むもの。無ければ、背景ほど大きくない画像のうち一番大きいもの）
   - スライドマスター・レイアウト・スライドのフッターの欄（ftr）の文字
+--no-design でなければ、表紙・章扉・本文のレイアウトの背景を画像にし、文字の置き場所・章ナビ・ページ番号の形も読む（pptx_design.py。PowerPoint か LibreOffice と Pillow が要る）。
 読み取れなかった項目は書かない（部品の既定に任せる）。何を読み取り、どの色を強調（emph）に当てたかを表示する。
 置き場所: プロジェクトなら <プロジェクト>/.claude/pptx-deck/theme.json、自分の既定なら ~/.claude/pptx-deck/theme.json
 """
@@ -227,11 +230,88 @@ def pick_font(f):
     return None
 
 
+OFFICE_DEFAULTS = {"4472C4", "4F81BD", "156082", "5B9BD5"}  # Office の既定の accent1（会社の色ではないことが多い）
+
+
+def design(a, theme, got, miss, out_dir):
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import pptx_design as D
+    try:
+        from PIL import Image  # noqa: F401
+    except ImportError:
+        miss.append("背景と置き場所（pip install pillow が要る）")
+        return
+    with zipfile.ZipFile(a.src) as z:
+        if "ppt/presentation.xml" not in z.namelist():
+            miss.append("背景と置き場所（thmx からは読めない。同じ見た目の pptx か potx を渡す）")
+            return
+    deck = D.Deck(a.src)
+    if not deck.layouts:
+        miss.append("背景と置き場所（レイアウトが無い）")
+        return
+    picked = deck.pick({"cover": a.cover, "chapter": a.chapter, "content": a.content})
+    for kind, n in (("cover", a.cover_slide), ("chapter", a.chapter_slide), ("content", a.content_slide)):
+        if n is not None:
+            picked[kind] = deck.slide_source(n, kind)
+    print("レイアウトの名前: " + "、".join(l["name"] for l in deck.layouts))
+    asset_dir = os.path.abspath(a.logo_out) if a.logo_out else out_dir
+    os.makedirs(asset_dir, exist_ok=True)
+    render = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "pptx-build-sync", "scripts", "render_pptx.sh")
+    drop = {t.strip() for t in (a.drop_text or "").split(",") if t.strip()}
+    master, extra, bgs, notes = D.build_master(deck, picked, asset_dir, out_dir, os.path.normpath(render), drop=drop)
+    for n in notes:
+        print(n)
+    if not master:
+        miss.append("背景と置き場所")
+        return
+    theme["master"] = master
+    theme.update(extra)
+    # 背景の画像にロゴ・著作権の表記が入るので、別に置かない
+    ft = {k: v for k, v in theme.get("footer", {}).items() if k not in ("logo", "text", "copyright", "confidential", "style")}
+    if ft:
+        theme["footer"] = ft
+    else:
+        theme.pop("footer", None)
+    theme["cover"] = {"style": "full"}  # ロゴは背景の画像に入るので置かない
+    got[:] = [g for g in got if not g.startswith(("ロゴ", "強調の色", "本文の書体", "見出しの書体", "フッターの文字", "著作権", "機密"))]
+    miss[:] = [m for m in miss if not m.startswith(("ロゴ", "フッターの文字"))]
+
+    # 書体：置き場所に指定があれば、そちらを使う（テーマの書体が使われていないテンプレートがある）
+    def used(kind, name):
+        return master.get(kind, {}).get("boxes", {}).get(name, {}).get("font")
+    head = used("content", "title") or used("cover", "title")
+    body = used("content", "lead") or head
+    if body:
+        theme["font"] = {"face": FONT_NAMES.get(body, body)}
+        if head and head != body:
+            theme["font"]["heading"] = FONT_NAMES.get(head, head)
+    for p in master.values():
+        for b in p["boxes"].values():
+            b.pop("font", None)
+    # 色：テーマの色が Office の既定のままなら、背景でいちばん使っている色を強調の色にする
+    colors = theme.setdefault("colors", {})
+    dom = D.dominant_color([bgs[k] for k in ("content", "cover", "chapter") if k in bgs])
+    if dom and (not colors.get("emph") or colors["emph"].upper() in OFFICE_DEFAULTS):
+        colors["emph"] = dom
+        got.append("強調の色（emph）= %s（背景でいちばん使っている色）" % dom)
+    if colors.get("link", "").upper() in ("0563C1", "0000FF"):
+        colors.pop("link")
+    got.append("背景の画像 %d 枚と、文字の置き場所" % len(bgs))
+
+
 def main():
     ap = argparse.ArgumentParser(description="会社の pptx・potx・thmx から、pptx-deck-design のテーマの JSON を作る")
     ap.add_argument("src", help="読む pptx・potx・thmx（書き換えない）")
     ap.add_argument("out", help="書き出す theme.json")
-    ap.add_argument("--logo-out", help="ロゴの画像を書き出すフォルダ（既定は theme.json と同じフォルダ）")
+    ap.add_argument("--logo-out", help="ロゴ・背景の画像を書き出すフォルダ（既定は theme.json と同じフォルダ）")
+    ap.add_argument("--no-design", action="store_true", help="背景・飾り・置き場所を読まない（色・書体・ロゴ・フッターの文字だけ）")
+    ap.add_argument("--cover", help="表紙に使うレイアウトの名前")
+    ap.add_argument("--chapter", help="章扉に使うレイアウトの名前")
+    ap.add_argument("--content", help="本文に使うレイアウトの名前")
+    ap.add_argument("--cover-slide", type=int, help="表紙の飾りと置き場所を、このスライド（1始まり）から読む")
+    ap.add_argument("--chapter-slide", type=int, help="章扉を、このスライドから読む")
+    ap.add_argument("--content-slide", type=int, help="本文を、このスライドから読む（上下左右の端の飾りだけ使う）")
+    ap.add_argument("--drop-text", help="背景から外す固定の文字（カンマ区切り。章ナビの項目名など、部品が描くもの）")
     a = ap.parse_args()
 
     z = zipfile.ZipFile(a.src)
@@ -344,6 +424,10 @@ def main():
             ft.setdefault("style", "band")
     else:
         miss.append("フッターの文字")
+
+    # ---- 背景・飾り・文字の置き場所 ----
+    if not a.no_design:
+        design(a, theme, got, miss, out_dir)
 
     with open(a.out, "w", encoding="utf-8") as f:
         json.dump(theme, f, ensure_ascii=False, indent=2)

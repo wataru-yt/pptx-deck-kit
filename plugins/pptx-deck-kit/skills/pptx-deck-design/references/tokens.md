@@ -105,7 +105,7 @@
 
 - 既定は `emph` も `dark` も `ink` と同じ（濃紺1色）。`ink` だけを替えると、3つとも同じ色になる
 - 文字を黒に近い色、強調を別の色にする例（動画の色にそろえた資料）: `{ ink: "151821", emph: "2F6BFF", dark: "111418", soft: "5C6575", gray: "9AA1AD", line: "E1E4EA", tint: "F5F6F8", strong: "E3EBFF", accent: "C5221F" }`
-- 背景は白のまま。塗りブロック（`tint`）を白に、背景を灰にする形は、白い箱を重ねる部品（スイムレーン）が見えなくなるので使わない
+- 本文のページの地は、白か薄い無地にする。塗りブロック（`tint`）を白に、地を灰にする形は、白い箱を重ねる部品（スイムレーン）が見えなくなるので使わない。会社の背景・飾りは、下の「飾りの層」で敷く
 - 1色の汎用アイコン（`icons/` の人・建物など）は濃紺で作ってある。文字の色を替えたら、同じ色に塗り直す
 
 ## 色の組を、題材に合わせて選ぶ（2026-11-24）
@@ -135,7 +135,7 @@
 
 ## テーマの設定の項目（theme.json。2026-11-24）
 
-トンマナ（色・書体・文字の段）とフォーマット（フッター・表紙・題とリードの位置・アイコン）を、プラグインの外の JSON に書いて差し替える。置き場所と優先の順は `SKILL.md` の「テーマ（トンマナとフォーマット）」。何も置かなければ、下の表の既定（今の値）のまま。
+トンマナ（色・書体・文字の段）とフォーマット（背景・飾り・ヘッダー・章ナビ・フッター・表紙・文字の置き場所・アイコン）を、プラグインの外の JSON に書いて差し替える。置き場所と優先の順は `SKILL.md` の「テーマ（トンマナとフォーマット）」。何も置かなければ、下の表の既定（今の値）のまま。
 
 | 項目 | 中身 | 既定 | 部品の中の名前 |
 |---|---|---|---|
@@ -152,21 +152,75 @@
 | `sizes.note` | 注（書かなければ `body` と同じ） | 16（下限 14） | `FS.note` |
 | `sizes.focus` | 主役の値（見る所の値） | 36（下限 24） | `FOCUS_FS` |
 | `footer.style` | `"page"`（ページ番号だけ）か `"band"`（下に帯） | `"page"` | — |
-| `footer.pageNumber` | `false` でページ番号を出さない | `true` | — |
+| `footer.pageNumber` | `false` で出さない。`{ x, y, w, h, align, color, size, bold, format }` で好きな場所に出す（`format` の `{n}` は番号、`{total}` は総ページ数） | `true` | — |
 | `footer.text` | page のときの左の文字（資料名など）。build.js の `footerText` が勝つ | なし | — |
 | `footer.copyright` | band のときの左の表記 | なし | — |
 | `footer.logo` | ロゴの画像（PNG・JPEG）。band なら右、page なら左下。縦横比のまま置く | なし | — |
 | `footer.confidential` | 「社外秘」などの表記。全ページの右下（ページ番号の左） | なし | — |
 | `footer.bandColor` | 帯の色 | `emph` | — |
+| `footer.height` | 帯の高さ（0.2〜0.9。band のとき）。高くすると、本文の下端が上がる | 0.305 | `FH` |
+| `footer.color` | フッターの文字の色 | 地に合わせる | — |
 | `cover.style` | `"auto"`（今の決め方）・`"simple"`（題と日付）・`"full"`（題の下に短い線、日付と所属） | `"auto"` | — |
 | `cover.affil` | 所属（`cover({ affil })` を省いたときに使う） | なし | — |
 | `cover.logo`・`cover.logoPos` | 表紙のロゴと位置（`top-left`・`top-right`・`center`） | なし・`top-left` | — |
-| `layout.sectionY` | 章名の上端（0.25〜0.5） | 0.38 | `Y.section` |
-| `layout.titleY` | 題の上端（0.45〜0.85） | 0.66 | `Y.title` |
+| `layout.sectionY` | 章名の上端（0.05〜0.5） | 0.38 | `Y.section` |
+| `layout.titleY` | 題の上端（0.12〜0.85） | 0.66 | `Y.title` |
 | `layout.leadY` | リードの上端（1.15〜1.45） | 1.32 | `Y.lead` |
+| `layout.bodyBottom` | 本文の下端（5.6〜6.6）。下の飾りが高いときに上げる | 6.6 | `BOTTOM` |
+| `layout.margin` | 本文の左右の余白（0.6〜1.0）。左右に帯や飾りがあるときに広げる | 0.6 | `M`・`BW` |
+| `nav` | 章ナビ（下の「章ナビ」） | 出さない | — |
+| `master` | 飾りの層：ページの種類ごとの背景・飾り・文字の置き場所（下の「飾りの層」） | なし | — |
 | `icons` | 自分のアイコンのフォルダ（文字列か配列）。同じ名前なら同梱の絵より先に使う | なし | — |
 | `extends` | 下に敷くテーマ（名前かパス） | なし | — |
 
 - 文字の段は、下限を下回る値を使わない（下限にして警告する）。目安より大きい値（本文 20・リード 26・主役の値 48 を超える）は使うが、部品の箱からあふれやすいので警告する
 - 範囲の外の位置・知らない項目・6桁でない色は、使わずに警告する
-- **固定（替えられない）**：スライドの大きさ（16:9、13.333×7.5。4:3 には対応しない）、左右の余白 0.6、本文の領域（y 2.2〜6.6）、フッターの高さ、部品の中の座標と、部品の中の固定の大きさ（番号丸の 11pt など）、表紙・章扉の文字の大きさ、色の役割（強調は1か所・問題は赤・退かせるものは灰）
+- **固定（替えられない）**：スライドの大きさ（16:9、13.333×7.5。4:3 には対応しない）、本文の上端（y 2.2）、本文のページの地は薄い色（濃い地の本文には対応しない。表紙・章扉・区切りは濃くてよい）、部品の中の固定の大きさ（番号丸の 11pt など）、色の役割（強調は1か所・問題は赤・退かせるものは灰）
+- 本文の下端を上げる・余白を広げると、図はその分小さくなる。密なページは「超える」「入らない」の警告が出るので、項目を減らすか分ける
+
+### 章ナビ（`nav`）
+
+右上などに章の名前を並べ、今の章を目立たせる。章の名前は資料ごとに違うので、build.js の `createDeck` の `nav: [{ name, ch }]` に書き、章の始まりで `chapter()` か `setChapter()` を呼ぶ。形だけをテーマに書く。
+
+| 項目 | 中身 |
+|---|---|
+| `style` | `"text"`（文字だけ）・`"underline"`（今の章に下線）・`"tabs"`（箱を並べる）・`"bar"`（全幅の帯）。`false` で出さない |
+| `align` | `"right"`（既定）・`"left"`・`"justify"`（`x`・`w` の幅に等分） |
+| `x`・`y`・`w`・`h` | 位置と大きさ（インチ） |
+| `size` | 文字の大きさ（11〜18） |
+| `color`・`activeColor` | 文字の色（ほかの章・今の章） |
+| `fill`・`activeFill` | 箱・帯・下線の色 |
+| `numbers` | `true` で章番号を付ける |
+
+ページの種類ごとに違えるときは `master.<種類>.nav` に書く。build.js の `miniNav: false` で消せる。
+
+### 飾りの層（`master`）
+
+`content`（本文）・`cover`（表紙）・`chapter`（章扉）・`divider`（区切り）の種類ごとに書く。背景と飾りは PowerPoint のスライドマスターになるので、開いた後も1か所で直せる。
+
+| 項目 | 中身 |
+|---|---|
+| `background` | 6桁の色、色のトークンの名前、画像のパス（PNG・JPEG。theme.json からの相対）、`{ color, image }` |
+| `objects` | 飾り。`{ type, x, y, w, h, color, line, transparency, rotate, flipH, flipV }`。`type` は `rect`・`roundRect`・`ellipse`・`triangle`・`rtTriangle`・`line`・`image`（`path`）・`text`（`text`・`size`・`bold`・`align`・`valign`・`font`）など。`line` は `width`・`dash` も書ける |
+| `boxes` | 文字の置き場所 `{ x, y, w, h, color, size, align, valign, bold, font }`。content は `section`・`title`・`lead`、cover は `title`・`sub`・`kicker`・`date`・`affil`・`logo`、chapter は `num`・`title`・`sub`、divider は `title`・`sub`。書いた項目だけ替わる |
+| `footer` | `false` でその種類のページにフッターを描かない（背景に入っているとき） |
+| `pageNumber` | `false` か、`footer.pageNumber` と同じ置き場所 |
+| `nav` | その種類のページの章ナビ（`false` か `nav` と同じ形） |
+
+```json
+{
+  "colors": { "emph": "1B6E4A" },
+  "nav": { "style": "tabs", "y": 0.2 },
+  "master": {
+    "content": {
+      "objects": [
+        { "type": "rect", "x": 0, "y": 0, "w": 13.333, "h": 0.12, "color": "emph" },
+        { "type": "image", "path": "logo.png", "x": 11.7, "y": 6.9, "h": 0.4 }
+      ]
+    },
+    "cover": { "background": "cover-bg.png", "boxes": { "title": { "x": 0.8, "y": 2.4, "w": 8, "h": 1.2, "align": "left", "color": "FFFFFF" } } }
+  }
+}
+```
+
+部品は作るときに次を点検して警告する：文字が地の色・絵の上で読みにくい、飾りが文字や本文の領域に重なる、本文のページの地が濃いか派手、章ナビが飾りに重なる。濃い地の上の文字は、色の指定がなければ白にする。

@@ -83,7 +83,9 @@ const GAP = { dense: 0.06, std: 0.12, para: 0.2, col: 0.5 };
 const PAD = { x: 0.18, y: 0.12 };
 
 // グリッドと縦の固定位置（2.1・5.4）
-const W = 13.333, H = 7.5, M = 0.6, BW = W - 2 * M, BODY = 2.2, BOTTOM = 6.6, FH = 0.305;
+const W = 13.333, H = 7.5, BODY = 2.2;
+let M = 0.6, BW = W - 2 * M; // 左右の余白と本文の幅。テーマの layout.margin で替わる（広げるだけ。左右の飾りがあるテンプレート向け）
+let BOTTOM = 6.6, FH = 0.305; // 本文の下端とフッターの帯の高さ。テーマの footer.height・layout.bodyBottom で替わる（下端は上げるだけ）
 const Y = { section: 0.38, title: 0.66, lead: 1.32, body: BODY, bottom: BOTTOM, source: H - 0.66, footer: H - FH };
 
 // 書体。テーマの font で替わる：face＝本文（F）、heading＝題・表紙・章扉（FHEAD。既定は本文と同じ）、number＝番号丸などの数字（FNUM）
@@ -129,6 +131,54 @@ const assetDirs = sub => {
 // 色の明るさ（帯の上の文字を白にするかの判定）
 const isDark = hex => { const n = parseInt(hex, 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255; return (0.299 * r + 0.587 * g + 0.114 * b) < 110; };
 
+// 明るさと読みやすさ（WCAG の相対輝度と明暗比）
+const relLum = hex => { const ch = [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16) / 255).map(v => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)); return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2]; };
+const contrast = (a, b) => { const x = relLum(a), y = relLum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+// PNG の画素を読む（8bit・非インターレースだけ。背景の絵の上で文字が読めるかを確かめるのに使う）。読めなければ null
+const PNG_CACHE = {};
+const pngReader = file => {
+  if (file in PNG_CACHE) return PNG_CACHE[file];
+  let out = null;
+  try {
+    const zlib = require("zlib"), b = fs.readFileSync(file);
+    if (b.slice(1, 4).toString() === "PNG") {
+      let w = 0, h = 0, depth = 0, type = 0, lace = 0, pal = null, trns = null; const idat = [];
+      for (let i = 8; i < b.length;) {
+        const len = b.readUInt32BE(i), tag = b.slice(i + 4, i + 8).toString(), d = b.slice(i + 8, i + 8 + len);
+        if (tag === "IHDR") { w = d.readUInt32BE(0); h = d.readUInt32BE(4); depth = d[8]; type = d[9]; lace = d[12]; }
+        else if (tag === "PLTE") pal = d; else if (tag === "tRNS") trns = d; else if (tag === "IDAT") idat.push(d);
+        i += 12 + len;
+      }
+      const ch = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[type];
+      if (depth === 8 && !lace && ch) {
+        const raw = zlib.inflateSync(Buffer.concat(idat)), stride = w * ch, px = Buffer.alloc(stride * h);
+        for (let y = 0; y < h; y++) {
+          const f = raw[y * (stride + 1)], line = raw.slice(y * (stride + 1) + 1, (y + 1) * (stride + 1));
+          for (let x = 0; x < stride; x++) {
+            const a = x >= ch ? px[y * stride + x - ch] : 0, up = y ? px[(y - 1) * stride + x] : 0, c = y && x >= ch ? px[(y - 1) * stride + x - ch] : 0;
+            let v = line[x];
+            if (f === 1) v += a; else if (f === 2) v += up; else if (f === 3) v += (a + up) >> 1;
+            else if (f === 4) { const p = a + up - c, pa = Math.abs(p - a), pb = Math.abs(p - up), pc = Math.abs(p - c); v += pa <= pb && pa <= pc ? a : pb <= pc ? up : c; }
+            px[y * stride + x] = v & 255;
+          }
+        }
+        // (fx, fy) は 0〜1。[r, g, b, 不透明度 0〜1] を返す
+        out = (fx, fy) => {
+          const i = Math.min(h - 1, Math.max(0, Math.floor(fy * h))) * stride + Math.min(w - 1, Math.max(0, Math.floor(fx * w))) * ch;
+          if (type === 2) return [px[i], px[i + 1], px[i + 2], 1];
+          if (type === 6) return [px[i], px[i + 1], px[i + 2], px[i + 3] / 255];
+          if (type === 0) return [px[i], px[i], px[i], 1];
+          if (type === 4) return [px[i], px[i], px[i], px[i + 1] / 255];
+          const k = px[i]; return [pal[k * 3], pal[k * 3 + 1], pal[k * 3 + 2], trns && k < trns.length ? trns[k] / 255 : 1];
+        };
+      }
+    }
+  } catch (e) { /* 読めない */ }
+  return (PNG_CACHE[file] = out);
+};
+const toHex = rgb => rgb.map(v => Math.round(v).toString(16).padStart(2, "0")).join("").toUpperCase();
+const blend = (under, over, alpha) => toHex([0, 2, 4].map((i, k) => parseInt(under.slice(i, i + 2), 16) * (1 - alpha) + (Array.isArray(over) ? over[k] : parseInt(over.slice(i, i + 2), 16)) * alpha));
+
 // ===== テーマ（トンマナとフォーマット。2026-11-24） =====
 // 各自の見た目（色・書体・文字の段・フッター・表紙・題とリードの位置・自分のアイコン）を、プラグインの外の JSON に置いて読み込む。
 // プラグインは更新のたびに丸ごと入れ替わるので、各自の設定はプラグインの中に置かない。
@@ -139,17 +189,23 @@ const isDark = hex => { const n = parseInt(hex, 16), r = n >> 16, g = (n >> 8) &
 //   4. 個人の ~/.claude/pptx-deck/theme.json
 //   5. 今の既定（下の DEFAULT_TOKENS）
 // 何も置かなければ、今とまったく同じ出力になる。opts.themeFiles: false か、環境変数 PPTX_DECK_THEME_FILES=0 で 3・4 を読まない。
-const DEFAULT_TOKENS = { FS: { ...FS }, LEAD_FS, FOCUS_FS, F, FNUM, Y: { ...Y } };
+const DEFAULT_TOKENS = { FS: { ...FS }, LEAD_FS, FOCUS_FS, F, FNUM, Y: { ...Y }, BOTTOM, FH, M, BW };
 const FONT_WIDTH = { "Meiryo": 1.12, "メイリオ": 1.12 }; // 書体ごとの幅の倍率の既定（游ゴシックより幅の広い書体）
-const THEME_SECTIONS = ["colors", "font", "sizes", "footer", "cover", "layout", "icons"];
+const THEME_SECTIONS = ["colors", "font", "sizes", "footer", "cover", "layout", "icons", "master", "nav"];
 const THEME_KEYS = new Set(["$schema", "name", "description", "extends", ...THEME_SECTIONS, "mode", "note"]);
 // 文字の段：テーマの名前 → 部品の中の名前。下限を下回る値は使わず、下限にして警告する
 //   title＝題（FS.title）、lead＝リード（LEAD_FS）、large＝やや大きい文字（FS.lead）、name＝名前・見出し（FS.head・FS.block）、body＝本文（FS.body）、note＝注（FS.note）、focus＝主役の値（FOCUS_FS）
 const SIZE_MIN = { title: 20, lead: 18, large: 14, name: 14, body: 14, note: 14, focus: 24 };
 const SIZE_MAX = { title: 32, lead: 26, large: 24, name: 22, body: 20, note: 20, focus: 48 }; // 超えても使うが、部品の箱からあふれやすいので知らせる
-// 題・リード・章名の縦の位置（インチ）。本文の領域（y 2.2〜6.6）に食い込まない範囲だけ動かせる
-const LAYOUT_RANGE = { sectionY: [0.25, 0.5], titleY: [0.45, 0.85], leadY: [1.15, 1.45] };
-const FOOTER_KEYS = new Set(["style", "pageNumber", "text", "copyright", "logo", "confidential", "bandColor"]);
+// 題・リード・章名の縦の位置と、本文の下端（インチ）。本文の上端（y 2.2）より上と、下端より下だけで動かせる
+const LAYOUT_RANGE = { sectionY: [0.05, 0.5], titleY: [0.12, 0.85], leadY: [1.15, 1.45], bodyBottom: [5.6, 6.6], margin: [0.6, 1.0] };
+const FOOTER_KEYS = new Set(["style", "pageNumber", "text", "copyright", "logo", "confidential", "bandColor", "height", "color"]);
+const NAV_KEYS = new Set(["style", "align", "x", "y", "w", "h", "size", "color", "activeColor", "fill", "activeFill", "numbers"]);
+// 飾りの層（master）：ページの種類ごとに、背景・飾り（objects）・文字の置き場所（boxes）を持つ
+const PAGE_TYPES = { content: ["section", "title", "lead"], cover: ["title", "sub", "kicker", "date", "affil", "logo"], chapter: ["num", "title", "sub"], divider: ["title", "sub"] };
+const MASTER_KEYS = new Set(["background", "objects", "boxes", "footer", "pageNumber", "nav"]);
+const OBJ_KEYS = new Set(["type", "x", "y", "w", "h", "color", "line", "transparency", "rotate", "flipH", "flipV", "path", "text", "size", "bold", "align", "valign", "font", "width", "dash"]);
+const BOX_KEYS = new Set(["x", "y", "w", "h", "color", "size", "align", "valign", "bold", "font"]);
 const COVER_KEYS = new Set(["style", "logo", "logoPos", "affil"]);
 const FONT_KEYS = new Set(["face", "heading", "number", "widthScale"]);
 const themeWarn = (src, msg) => console.warn(`[deck-parts] テーマ（${src}）: ${msg}`);
@@ -204,6 +260,29 @@ const normLayer = (raw, src, dir) => {
   if (raw.cover !== undefined) { const c = { ...raw.cover }; checkKeys(c, COVER_KEYS, "cover", src); if (c.logo) c.logo = abs(c.logo); L.cover = c; }
   if (raw.layout !== undefined) L.layout = { ...raw.layout };
   if (raw.icons !== undefined) L.icons = [].concat(raw.icons).filter(Boolean).map(abs);
+  if (raw.nav !== undefined) { const n = typeof raw.nav === "string" || raw.nav === false ? { style: raw.nav } : { ...raw.nav }; checkKeys(n, NAV_KEYS, "nav", src); L.nav = n; }
+  if (raw.master !== undefined) {
+    L.master = {};
+    Object.entries(raw.master || {}).forEach(([type, p]) => {
+      if (!PAGE_TYPES[type]) { themeWarn(src, `master に知らないページの種類がある（${type}）。使える種類: ${Object.keys(PAGE_TYPES).join("・")}`); return; }
+      checkKeys(p, MASTER_KEYS, `master.${type}`, src);
+      const out = { objects: [], boxes: {} };
+      if (p.footer === false) out.footer = false;
+      if (p.pageNumber !== undefined) out.pageNumber = p.pageNumber;
+      if (p.nav !== undefined) { if (p.nav && typeof p.nav === "object") checkKeys(p.nav, NAV_KEYS, `master.${type}.nav`, src); out.nav = p.nav; }
+      if (p.background !== undefined) {
+        const bg = typeof p.background === "string" ? (/\.(png|jpe?g|gif)$/i.test(p.background) ? { image: p.background } : { color: p.background }) : { ...p.background };
+        if (bg.image) bg.image = abs(bg.image);
+        out.background = bg;
+      }
+      (p.objects || []).forEach((o, i) => { checkKeys(o, OBJ_KEYS, `master.${type}.objects[${i}]`, src); out.objects.push({ ...o, ...(o.path ? { path: abs(o.path) } : {}) }); });
+      Object.entries(p.boxes || {}).forEach(([name, b]) => {
+        if (!PAGE_TYPES[type].includes(name)) { themeWarn(src, `master.${type}.boxes に知らない名前がある（${name}）。使える名前: ${PAGE_TYPES[type].join("・")}`); return; }
+        checkKeys(b, BOX_KEYS, `master.${type}.boxes.${name}`, src); out.boxes[name] = { ...b };
+      });
+      L.master[type] = out;
+    });
+  }
   return L;
 };
 // テーマの指定（名前・パス・オブジェクト）を、層の並び（下から上）にする。extends で別のテーマを下に敷ける
@@ -292,6 +371,7 @@ function createDeck(pres, opts = {}) {
   // 文字の段・書体・位置は、前の createDeck の値を持ち越さないよう、既定に戻してから当てる（色の C は今まで通り、当てた分だけ替わる）
   Object.assign(FS, DEFAULT_TOKENS.FS); Object.assign(Y, DEFAULT_TOKENS.Y);
   LEAD_FS = DEFAULT_TOKENS.LEAD_FS; FOCUS_FS = DEFAULT_TOKENS.FOCUS_FS; F = DEFAULT_TOKENS.F; FHEAD = F; FNUM = DEFAULT_TOKENS.FNUM; EMW = 1;
+  BOTTOM = DEFAULT_TOKENS.BOTTOM; FH = DEFAULT_TOKENS.FH; M = DEFAULT_TOKENS.M; BW = DEFAULT_TOKENS.BW;
   const layers = [];
   const useFiles = opts.themeFiles !== false && process.env.PPTX_DECK_THEME_FILES !== "0";
   const files = useFiles ? findThemeFiles() : {};
@@ -315,7 +395,7 @@ function createDeck(pres, opts = {}) {
     if (top.footer) L.footer = top.footer;
     layers.push(L);
   }
-  const TH = { colors: {}, font: {}, sizes: {}, footer: {}, cover: {}, layout: {}, icons: [] };
+  const TH = { colors: {}, font: {}, sizes: {}, footer: {}, cover: {}, layout: {}, icons: [], master: {}, nav: {} };
   let colorSrc = null;
   const KEY_SRC = {}; // "sizes.body" → どの層から来たか（警告に出す）
   const short = p => String(p).replace(os.homedir(), "~");
@@ -326,7 +406,7 @@ function createDeck(pres, opts = {}) {
   layers.forEach(L => {
     if (L.fromOpts && fileColors && L.colors && Object.keys(L.colors).length) skippedOptsColor = true;
     else if (L.colors && Object.keys(L.colors).length) { Object.assign(TH.colors, L.colors); colorSrc = L.colorSrc; }
-    ["font", "sizes", "footer", "cover", "layout"].forEach(k => { if (L[k]) { Object.assign(TH[k], L[k]); Object.keys(L[k]).forEach(kk => { KEY_SRC[`${k}.${kk}`] = short(L.src); }); } });
+    ["font", "sizes", "footer", "cover", "layout", "master", "nav"].forEach(k => { if (L[k]) { Object.assign(TH[k], L[k]); Object.keys(L[k]).forEach(kk => { KEY_SRC[`${k}.${kk}`] = short(L.src); }); } });
     if (L.icons) TH.icons = [...L.icons, ...TH.icons]; // 上の層のフォルダを先に探す
   });
   const fileSrcs = layers.map(L => L.src).filter((s0, i, a) => /\.json$/i.test(s0) && a.indexOf(s0) === i);
@@ -373,9 +453,9 @@ function createDeck(pres, opts = {}) {
   // 題・リード・章名の位置（動かせる範囲だけ）
   Object.entries(TH.layout).forEach(([k, v]) => {
     const r = LAYOUT_RANGE[k], src = KEY_SRC[`layout.${k}`] || "layout";
-    if (!r) { themeWarn(src, `動かせない位置（${k}）。動かせるのは ${Object.keys(LAYOUT_RANGE).join("・")} だけ（余白・本文の領域 y 2.2〜6.6・スライドの大きさは固定）`); return; }
-    if (typeof v !== "number" || v < r[0] || v > r[1]) { themeWarn(src, `layout.${k} は ${r[0]}〜${r[1]} の数にする（${v}）。既定の ${DEFAULT_TOKENS.Y[k.replace(/Y$/, "")]} を使う`); return; }
-    Y[k.replace(/Y$/, "")] = v;
+    if (!r) { themeWarn(src, `動かせない位置（${k}）。動かせるのは ${Object.keys(LAYOUT_RANGE).join("・")} だけ（本文の上端 y 2.2・スライドの大きさは固定）`); return; }
+    if (typeof v !== "number" || v < r[0] || v > r[1]) { themeWarn(src, `layout.${k} は ${r[0]}〜${r[1]} の数にする（${v}）。既定の ${k === "bodyBottom" ? DEFAULT_TOKENS.BOTTOM : k === "margin" ? DEFAULT_TOKENS.M : DEFAULT_TOKENS.Y[k.replace(/Y$/, "")]} を使う`); return; }
+    if (k === "margin") { M = v; BW = W - 2 * M; } else if (k !== "bodyBottom") Y[k.replace(/Y$/, "")] = v;
   });
   if (Y.lead - Y.title < 0.5) themeWarn("layout", `リード（${Y.lead}）が題（${Y.title}）に近すぎる。0.5 以上離す`);
   const SH = pres.shapes;
@@ -390,12 +470,133 @@ function createDeck(pres, opts = {}) {
   const BAND = FT.bandColor ? String(FT.bandColor).replace(/^#/, "") : null; // 帯の色（既定は強調の色）
   const LOGO = FT.logo && fs.existsSync(FT.logo) ? FT.logo : null;
   if (FT.logo && !LOGO) themeWarn("footer", `ロゴの画像が見つからない（${FT.logo}）`);
-  const LOGO_BOX = LOGO ? (FT.legacyLogo ? { w: 0.8, h: 0.167 } : fitBox(LOGO, FOOTER === "band" ? 1.6 : 1.4, FOOTER === "band" ? 0.2 : 0.26)) : null; // opts.logo は今の大きさのまま
+  // フッターの帯の高さ：高くした分だけ、本文の下端を上げる（部品は下端に合わせて図の大きさを決める）
+  if (FT.height !== undefined) {
+    if (FOOTER !== "band") themeWarn("footer", "footer.height は style: \"band\" のときだけ効く。下の飾りを master で描くときは layout.bodyBottom で本文の下端を上げる");
+    else if (typeof FT.height !== "number" || FT.height < 0.2 || FT.height > 0.9) themeWarn("footer", `footer.height は 0.2〜0.9 の数にする（${FT.height}）。既定の ${DEFAULT_TOKENS.FH} を使う`);
+    else { FH = FT.height; BOTTOM = Math.min(BOTTOM, Math.round((6.905 - FH) * 100) / 100); }
+  }
+  if (typeof TH.layout.bodyBottom === "number" && TH.layout.bodyBottom >= 5.6 && TH.layout.bodyBottom <= 6.6) BOTTOM = Math.min(BOTTOM, TH.layout.bodyBottom);
+  Y.bottom = BOTTOM; Y.footer = H - FH; Y.source = BOTTOM + 0.24;
+  if (BOTTOM < DEFAULT_TOKENS.BOTTOM) console.log(`[deck-parts] テーマのフッター・飾りに合わせて、本文の下端を ${DEFAULT_TOKENS.BOTTOM} → ${BOTTOM} にした（図はその分小さくなる）`);
+  const logoMaxH = FOOTER === "band" ? (FH <= 0.31 ? 0.2 : Math.min(0.55, FH * 0.62)) : 0.26;
+  const LOGO_BOX = LOGO ? (FT.legacyLogo ? { w: 0.8, h: 0.167 } : fitBox(LOGO, FOOTER === "band" ? Math.max(1.6, logoMaxH * 6) : 1.4, logoMaxH)) : null; // opts.logo は今の大きさのまま
   const COVER = TH.cover;
   if (COVER.style && !["auto", "simple", "full"].includes(COVER.style)) themeWarn("cover", `cover.style は auto・simple・full のどれか（${COVER.style}）`);
   if (COVER.logoPos && !["top-left", "top-right", "center"].includes(COVER.logoPos)) themeWarn("cover", `cover.logoPos は top-left・top-right・center のどれか（${COVER.logoPos}）`);
   if (COVER.logo && !fs.existsSync(COVER.logo)) themeWarn("cover", `表紙のロゴの画像が見つからない（${COVER.logo}）`);
   const THEME_ICON_DIRS = TH.icons.filter(d => { if (fs.existsSync(d)) return true; themeWarn("icons", `アイコンのフォルダが見つからない（${d}）`); return false; });
+
+  // ---- 飾りの層（テーマの master）：背景と飾りはスライドマスターに描く。本文の部品の下に敷かれ、PowerPoint でも編集できる ----
+  const hexOf = (v, fallback) => {
+    if (v === undefined || v === null) return fallback;
+    if (typeof v === "string" && v in C) return C[v]; // 色のトークンの名前（emph・ink など）
+    const h = String(v).replace(/^#/, "");
+    if (/^[0-9A-Fa-f]{6}$/.test(h)) return h.toUpperCase();
+    themeWarn("master", `色が6桁の16進でも色の名前でもない（${v}）`); return fallback;
+  };
+  const MASTER = {};
+  Object.entries(TH.master).forEach(([type, p]) => {
+    const out = { footer: p.footer, pageNumber: p.pageNumber, nav: p.nav, boxes: {}, objects: [], bgColor: type === "divider" ? C.dark : C.white, bgImage: null };
+    if (p.background) {
+      if (p.background.color !== undefined) out.bgColor = hexOf(p.background.color, out.bgColor);
+      if (p.background.image) { if (fs.existsSync(p.background.image)) out.bgImage = p.background.image; else themeWarn("master", `背景の画像が見つからない（${p.background.image}）`); }
+    }
+    (p.objects || []).forEach((o, i) => {
+      const where = `master.${type}.objects[${i}]`, t = o.type || (o.path ? "image" : o.text !== undefined ? "text" : "rect");
+      const ob = { ...o, type: t, x: o.x ?? 0, y: o.y ?? 0 };
+      if (t === "image") {
+        if (!o.path || !fs.existsSync(o.path)) { themeWarn("master", `${where} の画像が見つからない（${o.path}）`); return; }
+        const sz = imageSize(o.path), r = sz && sz.h ? sz.w / sz.h : 1;
+        ob.w = o.w ?? (o.h !== undefined ? o.h * r : 1); ob.h = o.h ?? ob.w / r;
+      } else if (t === "line") { ob.w = o.w ?? 0; ob.h = o.h ?? 0; }
+      else if (t !== "text" && !pres.ShapeType[t]) { themeWarn("master", `${where} の type が使えない（${t}）。rect・roundRect・ellipse・triangle・rtTriangle・parallelogram・trapezoid・line・image・text など`); return; }
+      if (![ob.x, ob.y, ob.w, ob.h].every(v => typeof v === "number" && Number.isFinite(v))) { themeWarn("master", `${where} は x・y・w・h を数（インチ）で書く`); return; }
+      if (t !== "image") ob.color = hexOf(o.color, t === "text" ? C.ink : C.emph);
+      out.objects.push(ob);
+    });
+    Object.entries(p.boxes || {}).forEach(([name, b]) => { out.boxes[name] = { ...b, ...(b.color !== undefined ? { color: hexOf(b.color, undefined) } : {}) }; });
+    out.drawn = !!(out.bgImage || (p.background && p.background.color !== undefined) || out.objects.length);
+    MASTER[type] = out;
+    if (!out.drawn) return;
+    const objects = out.objects.map(o => {
+      const pos = { x: o.x, y: o.y, w: o.w, h: o.h }, tr = o.transparency ?? 0;
+      if (o.type === "image") return { image: { path: o.path, ...pos, ...(tr ? { transparency: tr } : {}), ...(o.rotate ? { rotate: o.rotate } : {}) } };
+      if (o.type === "line") return { line: { ...pos, h: o.h || 0, ...(o.flipV ? { flipV: true } : {}), line: { color: o.color, width: o.width ?? 1, ...(o.dash ? { dashType: o.dash } : {}), ...(tr ? { transparency: tr } : {}) } } };
+      if (o.type === "text") return { text: { text: String(o.text ?? ""), options: { ...pos, margin: 0, color: o.color, fontSize: o.size ?? 12, bold: !!o.bold, align: o.align || "left", valign: o.valign || "middle", fontFace: o.font || F, ...(o.rotate ? { rotate: o.rotate } : {}), ...(tr ? { transparency: tr } : {}) } } };
+      const line = o.line ? { color: hexOf(o.line.color, C.line), width: o.line.width ?? 1 } : { type: "none" };
+      return { text: { text: "", options: { shape: pres.ShapeType[o.type], ...pos, fill: o.color && o.fill !== false ? { color: o.color, transparency: tr } : { type: "none" }, line, ...(o.rotate ? { rotate: o.rotate } : {}), ...(o.flipH ? { flipH: true } : {}), ...(o.flipV ? { flipV: true } : {}) } } };
+    });
+    pres.defineSlideMaster({ title: `DK_${type}`, background: out.bgImage ? { path: out.bgImage } : { color: out.bgColor }, objects });
+  });
+  // 地の色：(x, y) の位置で、文字の下に何色があるか。背景 → 飾りの順に重ねる
+  const SOLID_SHAPES = new Set(["rect", "roundRect", "ellipse", "parallelogram", "trapezoid", "chevron", "homePlate"]);
+  const colorAt = (type, x, y) => {
+    const m = MASTER[type];
+    let c = m ? m.bgColor : type === "divider" ? C.dark : C.white;
+    if (!m) return c;
+    if (m.bgImage) { const rd = pngReader(m.bgImage); if (rd) { const p = rd(x / W, y / H); c = blend(c, p, p[3]); } }
+    m.objects.forEach(o => {
+      if (x < o.x || x > o.x + o.w || y < o.y || y > o.y + o.h) return;
+      const a = 1 - (o.transparency ?? 0) / 100;
+      if (o.type === "image") { const rd = pngReader(o.path); if (rd) { const p = rd((x - o.x) / o.w, (y - o.y) / o.h); c = blend(c, p, p[3] * a); } }
+      else if (SOLID_SHAPES.has(o.type) && o.fill !== false) {
+        if (o.type === "ellipse" && ((x - o.x - o.w / 2) / (o.w / 2)) ** 2 + ((y - o.y - o.h / 2) / (o.h / 2)) ** 2 > 1) return;
+        c = blend(c, o.color, a);
+      }
+    });
+    return c;
+  };
+  // 矩形の中の9×3点で、文字の色がいちばん読みにくい点の明暗比
+  const worstContrast = (type, box, color) => { let w = 21; for (let i = 0; i < 9; i++) for (let j = 0; j < 3; j++) w = Math.min(w, contrast(color, colorAt(type, box.x + box.w * (i + 0.5) / 9, box.y + box.h * (j + 0.5) / 3))); return w; };
+  const midY = b => ({ x: b.x, y: b.y + b.h * 0.15, w: b.w, h: b.h * 0.7 });
+  // 文字の置き場所：既定 → テーマの boxes の順に重ねる。色を指定していなければ、地が濃いときは白にする
+  const boxOf = (type, name, def) => {
+    const m = MASTER[type], u = (m && m.boxes[name]) || {};
+    const b = { ...def, ...u };
+    if (m && u.color === undefined && def.color !== undefined) {
+      const shown = unGray(def.color), probe = midY({ ...b, w: Math.min(b.w, 4), x: b.align === "right" ? b.x + b.w - Math.min(b.w, 4) : b.align === "center" ? b.x + (b.w - Math.min(b.w, 4)) / 2 : b.x });
+      const now = worstContrast(type, probe, shown);
+      const white = worstContrast(type, probe, C.white);
+      if ((now < 3 && white > now) || (now < 4.5 && white > now * 1.15)) b.color = C.white;
+    }
+    return b;
+  };
+  // 読みにくさの点検（同じ内容は1回だけ）
+  const THEME_SEEN = new Set();
+  const warnTheme = (key, msg) => { if (THEME_SEEN.has(key)) return; THEME_SEEN.add(key); themeWarn("master", msg); };
+  const checkReadable = (type, name, box, color, text, size) => {
+    if (!MASTER[type] || !text) return;
+    const w = Math.min(box.w, textW(text, size)), x = box.align === "right" ? box.x + box.w - w : box.align === "center" ? box.x + (box.w - w) / 2 : box.x;
+    const c = worstContrast(type, midY({ x, y: box.y, w, h: Math.min(box.h, lineH(size, 1.2)) }), unGray(color));
+    const need = size >= 20 ? 3 : 4.5;
+    if (c < need) warnTheme(`${type}.${name}`, `${type} の ${name} の文字が、地の色・絵の上で読みにくい（明暗比 ${c.toFixed(1)}、目安 ${need} 以上）。boxes.${name}.color を替えるか、飾りをずらす`);
+    // 飾りが文字に半分かかる（帯のように文字をすっぽり含むものは除く）
+    const tb = { x, y: box.y, w, h: Math.min(box.h, lineH(size, 1.2)) };
+    (MASTER[type].objects || []).forEach((o, i) => {
+      if ((o.transparency ?? 0) >= 80) return;
+      const ox = Math.min(tb.x + tb.w, o.x + (o.w || 0.02)) - Math.max(tb.x, o.x), oy = Math.min(tb.y + tb.h, o.y + (o.h || 0.02)) - Math.max(tb.y, o.y);
+      const covers = o.x <= tb.x + 0.01 && o.y <= tb.y + 0.05 && o.x + o.w >= tb.x + tb.w - 0.01 && o.y + o.h >= tb.y + tb.h - 0.05;
+      if (ox > 0.05 && oy > 0.08 && !covers) warnTheme(`${type}.${name}.obj${i}`, `${type} の ${name} の文字に、飾り（objects[${i}]）がかかる。飾りか boxes.${name} の位置・幅を替える`);
+    });
+  };
+  // 本文のページの点検：本文の領域は薄い地で、飾りを入れない（図の色と文字は、薄い地を前提にしている）
+  if (MASTER.content && MASTER.content.drawn) {
+    const m = MASTER.content, area = { x: M, y: BODY, w: BW, h: BOTTOM - BODY };
+    const samples = [];
+    for (let i = 0; i < 48; i++) for (let j = 0; j < 20; j++) samples.push(colorAt("content", area.x + area.w * (i + 0.5) / 48, area.y + area.h * (j + 0.5) / 20));
+    const dark = samples.filter(c => contrast(C.ink, c) < 7 || contrast(C.soft, c) < 4.5).length / samples.length;
+    if (dark > 0.5) warnTheme("content.dark", "本文のページの地が濃く、図の文字が読めない。本文のページは白か薄い色にする（濃い地は表紙・章扉・区切りだけ）");
+    else if (dark > 0.005) warnTheme("content.busy", `本文の領域（y ${BODY}〜${BOTTOM}）に、濃い絵や模様がかかっている（約 ${Math.round(dark * 100)}%）。薄くするか、領域の外へ寄せる`);
+    m.objects.forEach((o, i) => {
+      if ((o.transparency ?? 0) >= 80) return;
+      const ox = Math.min(area.x + area.w, o.x + o.w) - Math.max(area.x, o.x), oy = Math.min(area.y + area.h, o.y + o.h) - Math.max(area.y, o.y);
+      if (ox > 0.05 && oy > 0.05) warnTheme(`content.in${i}`, `本文のページの飾り objects[${i}]（${o.type}）が、本文の領域（x ${M}〜${(W - M).toFixed(2)}、y ${BODY}〜${BOTTOM}）に入る。外へ寄せるか、layout.bodyBottom で本文の下端を上げる`);
+    });
+    if (!m.bgImage && contrast(C.ink, m.bgColor) < 7) warnTheme("content.bg", `本文のページの地（${m.bgColor}）が濃い。白か薄い色にする`);
+  }
+  // 前面を薄くする白（echo・overlay）は、本文の地の色に合わせる
+  const PAGE_BG = () => (MASTER.content && MASTER.content.drawn && !MASTER.content.bgImage ? MASTER.content.bgColor : C.white);
 
   let page = 0, chapterNow = 0;
   const SLIDES = [];      // { s, ch, nav, charts }
@@ -438,7 +639,7 @@ function createDeck(pres, opts = {}) {
   const unGray = c => (!inFooter && GRAYS().includes(c) ? C.soft : c);
   const unGrayText = text => (Array.isArray(text) ? text.map(r => (r && r.options && r.options.color ? { ...r, options: { ...r.options, color: unGray(r.options.color) } } : r)) : text);
   const BIGF = {}, CHARTP = {};
-  const noteBig = (text, o) => { if (inFooter || !page || !o) return; const runs = Array.isArray(text) ? text.map(r => ({ fs: (r && r.options && r.options.fontSize) || o.fontSize, c: (r && r.options && r.options.color) || o.color, t: (r && r.text) || "" })) : [{ fs: o.fontSize, c: o.color, t: String(text) }]; if (runs.some(r => (r.fs ?? 0) >= 24 && (r.c === C.emph || r.c === C.accent || r.c === C.white || r.c === "FFFFFF") && String(r.t).trim())) BIGF[page] = (BIGF[page] || 0) + 1; };
+  const noteBig = (text, o) => { if (inFooter || inChrome || !page || !o) return; const runs = Array.isArray(text) ? text.map(r => ({ fs: (r && r.options && r.options.fontSize) || o.fontSize, c: (r && r.options && r.options.color) || o.color, t: (r && r.text) || "" })) : [{ fs: o.fontSize, c: o.color, t: String(text) }]; if (runs.some(r => (r.fs ?? 0) >= 24 && (r.c === C.emph || r.c === C.accent || r.c === C.white || r.c === "FFFFFF") && String(r.t).trim())) BIGF[page] = (BIGF[page] || 0) + 1; };
   const chartPage = () => { if (page) CHARTP[page] = true; };
   // 見る所の値：36pt（FOCUS_FS）・太字・強調の色（problem なら赤）。グラフの見る所のすぐ隣に置く
   // 見る所の値は、その要素の普通の値の位置に書く（棒なら棒の上、区画なら区画の中）。塗りの上に置くときは onFill で白にする
@@ -460,9 +661,9 @@ function createDeck(pres, opts = {}) {
   // 面の中の文字の大きさ：面の高さから決め（行の高さの約 1/1.6）、幅に入るまで下げる。下限 16pt・上限 28pt（構成比の区画、ツリーマップ）
   const areaFs = (text, w, h, lines = 1, lo = FS.body, hi = 28) => { let f = Math.max(lo, Math.min(hi, Math.floor(h * 72 / (lines * 1.6)))); const t = String(text).split("\n").reduce((a, b) => (em(b) > em(a) ? b : a), ""); while (f > lo && textW(t, f) > w - 0.16) f -= 1; return f; };
   // 文字の大きさの下限（2026-11-25）：図の中の文字は 16pt 以上。14pt は密な図（スイムレーンの工程名）だけ。フッターと表紙の外は除く
-  const SMALL_SEEN = new Set(); let smallOK = false; // smallOK：付箋のボード（ブレストの量を優先する例外）を描く間だけ点検しない
+  const SMALL_SEEN = new Set(); let smallOK = false, inChrome = false; // inChrome：題・リード・ナビなど、図ではない文字を描く間。smallOK：付箋のボード（ブレストの量を優先する例外）を描く間だけ点検しない
   const checkSmall = (text, o) => {
-    if (inFooter || smallOK || !page || !o) return;
+    if (inFooter || inChrome || smallOK || !page || !o) return;
     const runs = Array.isArray(text) ? text.map(r => ({ t: (r && r.text) || "", fs: (r && r.options && r.options.fontSize) || o.fontSize })) : [{ t: String(text), fs: o.fontSize }];
     const r = runs.find(x => x.fs != null && x.fs < 14 && x.t.trim());
     if (r && !SMALL_SEEN.has(page)) { SMALL_SEEN.add(page); warn(`図の中に ${r.fs}pt の文字がある（「${r.t.replace(/\n/g, "").slice(0, 14)}」）。図の中の文字は 16pt 以上（密な図だけ 14pt）。入らないなら言葉を縮めるか、項目を減らす`); }
@@ -480,7 +681,7 @@ function createDeck(pres, opts = {}) {
   // ---- ページの記録 ----
   let chapterMark = 0; // setChapter の直後のページに、章の名前（ch<番号>）を付ける
   let plainFoot = false; // 表紙・区切り（nav: false のページ）は、フッターの資料名と線を出さない
-  const track = (s, o = {}) => { plainFoot = o.nav === false; page++; SLIDES.push({ s, ch: chapterNow, nav: o.nav !== false, charts: 0 }); if (o.key) PAGE[o.key] = page; if (chapterMark) { if (PAGE[`ch${chapterMark}`] === undefined) PAGE[`ch${chapterMark}`] = page; chapterMark = 0; } return s; };
+  const track = (s, o = {}, type = "content") => { plainFoot = o.nav === false; page++; SLIDES.push({ s, type, ch: chapterNow, nav: o.nav !== false, charts: 0 }); if (o.key) PAGE[o.key] = page; if (chapterMark) { if (PAGE[`ch${chapterMark}`] === undefined) PAGE[`ch${chapterMark}`] = page; chapterMark = 0; } return s; };
   // 現在の章（ミニ目次で濃くする章）を切り替える。0＝どれも濃くしない
   const setChapter = n => { chapterNow = n; chapterMark = n; };
   // 今のページに名前を付ける（目次・参照の「P.n」に使う。）
@@ -492,26 +693,50 @@ function createDeck(pres, opts = {}) {
 
   // ---- 骨格 ----
   // フッター：既定はページ番号だけを右下に（テーマの footer で替わる）。opts.footer が "band" なら、濃紺の帯に、左に表記・中央にページ番号・右にロゴ
-  const footer = s => { inFooter = true; try { footer0(s); } finally { inFooter = false; } };
-  const footer0 = s => {
+  const footer = (s, type = "content") => { if (MASTER[type] && MASTER[type].footer === false) return; inFooter = true; try { footer0(s, type); } finally { inFooter = false; } };
+  // フッターの文字の色：footer.color。指定がなくて地が濃ければ白
+  const FOOT_COLOR = FT.color !== undefined ? hexOf(FT.color, undefined) : undefined;
+  const footColor = (type, box, def) => FOOT_COLOR ?? (MASTER[type] && worstContrast(type, box, def) < 3 && worstContrast(type, box, C.white) > worstContrast(type, box, def) ? C.white : def);
+  // ページ番号を好きな場所に描く（footer.pageNumber が { x, y, w, h, align, color, size, bold, format } のとき）。format の {n} は番号、{total} は総ページ数
+  const pnOf = type => (MASTER[type] && MASTER[type].pageNumber !== undefined ? MASTER[type].pageNumber : FT.pageNumber);
+  const pageNumberBox = (s, type, PNB) => {
+    const n = page, size = PNB.size ?? FS.note, box = { x: PNB.x ?? W - M - 1.2, y: PNB.y ?? H - 0.5, w: PNB.w ?? 1.2, h: PNB.h ?? 0.3 };
+    const color = PNB.color !== undefined ? hexOf(PNB.color, C.soft) : footColor(type, box, C.soft), fmt = String(PNB.format ?? "{n}");
+    const draw = () => T(s, fmt.replace(/\{n\}/g, String(n)).replace(/\{total\}/g, String(page)), { ...box, fontSize: size, bold: !!PNB.bold, color, align: PNB.align || "right", valign: "middle", wrap: false });
+    if (fmt.includes("{total}")) later(() => { const k = inFooter; inFooter = true; try { draw(); } finally { inFooter = k; } });
+    else draw();
+  };
+  const footer0 = (s, type) => {
+    const pn = pnOf(type), PNB = pn && typeof pn === "object" ? pn : null;
+    if (PNB) pageNumberBox(s, type, PNB);
+    const NUM_ON = pn !== false && !PNB;
     if (FOOTER === "page") {
       // フッターの文字（opts.footerText・テーマの footer.text）があれば、細い線の下の左に資料名、右にページ番号（本文の下端 6.6 との間に余白を残す。線は y 6.98）
-      const lined = !!FOOT_TEXT && !plainFoot, rowY = lined ? H - 0.44 : H - 0.5;
+      let lined = !!FOOT_TEXT && !plainFoot;
+      // 会社の背景・飾りがある地では、資料名を置く所に絵やロゴがあれば出さない
+      const MF = MASTER[type];
+      if (lined && MF && MF.drawn) {
+        const x0 = M + (LOGO ? LOGO_BOX.w + 0.2 : 0), w = Math.min(textW(FOOT_TEXT, FS.note), 5);
+        const at = [];
+        for (let i = 0; i < 40; i++) for (let j = 0; j < 5; j++) at.push(colorAt(type, x0 + w * (i + 0.5) / 40, H - 0.44 + 0.26 * (j + 0.5) / 5));
+        if (at.some(c => contrast(c, at[0]) > 1.15) || contrast(footColor(type, { x: x0, y: H - 0.44, w, h: 0.26 }, C.gray), at[0]) < 2) { lined = false; warnTheme(`footer.${type}`, `${type} の下の左に絵やロゴがあるので、資料名（footerText）は出さない。出すなら飾りをずらすか、footer.pageNumber と master の text で置き場所を決める`); }
+      }
+      const rowY = lined ? H - 0.44 : H - 0.5;
+      const col = def => footColor(type, { x: M, y: rowY, w: BW, h: 0.26 }, def);
       // テーマのロゴ（page のとき）：左下。表紙・区切りのページには出さない
       let tx = M;
       if (LOGO && !plainFoot) { s.addImage({ path: LOGO, x: M, y: rowY + 0.13 - LOGO_BOX.h / 2, w: LOGO_BOX.w, h: LOGO_BOX.h }); tx = M + LOGO_BOX.w + 0.2; }
-      if (lined) { hline(s, M, H - 0.52, BW); T(s, FOOT_TEXT, { x: tx, y: H - 0.44, w: BW - 1.2 - (tx - M), h: 0.26, fontSize: FS.note, color: C.gray, valign: "middle", wrap: false }); }
-      if (PAGE_NO) T(s, String(page), { x: W - M - 1, y: rowY, w: 1, h: 0.26, fontSize: FS.note, color: C.gray, align: "right", valign: "middle", wrap: false });
-      if (CONF) { const cw = textW(CONF, FS.note) + 0.1, right = W - M - (PAGE_NO ? textW(String(page), FS.note) + 0.3 : 0); T(s, CONF, { x: right - cw, y: rowY, w: cw, h: 0.26, fontSize: FS.note, bold: true, color: C.ink, align: "right", valign: "middle", wrap: false }); }
+      if (lined) { if (!MASTER[type] || !MASTER[type].drawn) hline(s, M, H - 0.52, BW); T(s, FOOT_TEXT, { x: tx, y: H - 0.44, w: BW - 1.2 - (tx - M), h: 0.26, fontSize: FS.note, color: col(C.gray), valign: "middle", wrap: false }); }
+      if (NUM_ON) T(s, String(page), { x: W - M - 1, y: rowY, w: 1, h: 0.26, fontSize: FS.note, color: col(C.gray), align: "right", valign: "middle", wrap: false });
+      if (CONF) { const cw = textW(CONF, FS.note) + 0.1, right = W - M - (NUM_ON ? textW(String(page), FS.note) + 0.3 : 0); T(s, CONF, { x: right - cw, y: rowY, w: cw, h: 0.26, fontSize: FS.note, bold: true, color: col(C.ink), align: "right", valign: "middle", wrap: false }); }
       return;
     }
-    const band = BAND || C.emph;
+    const band = BAND ? hexOf(BAND, C.emph) : C.emph;
     // 帯の上の文字：帯が明るい色なら文字の色（ink）、暗い色なら白（明るい帯に白い文字は読めない）
-    const bandLum = (() => { const h = String(band).replace(/^#/, ""); const ch = [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(v => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)); return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2]; })();
-    const onBand = bandLum > 0.35 ? C.ink : C.white;
+    const onBand = FOOT_COLOR ?? (relLum(band) > 0.35 ? C.ink : C.white);
     rect(s, 0, H - FH, W, FH, band);
-    if (COPY) T(s, COPY, { x: 0.28, y: H - FH, w: 3, h: FH, fontSize: FS.note, color: onBand, valign: "middle", wrap: false });
-    if (PAGE_NO) T(s, String(page), { x: W / 2 - 0.5, y: H - FH, w: 1, h: FH, fontSize: 11, color: onBand, align: "center", valign: "middle" });
+    if (COPY) T(s, COPY, { x: 0.28, y: H - FH, w: 5, h: FH, fontSize: FS.note, color: onBand, valign: "middle", wrap: false });
+    if (NUM_ON) T(s, String(page), { x: W / 2 - 0.5, y: H - FH, w: 1, h: FH, fontSize: 11, color: onBand, align: "center", valign: "middle" });
     if (LOGO) s.addImage({ path: LOGO, x: W - 0.28 - LOGO_BOX.w, y: H - FH + (FH - LOGO_BOX.h) / 2, w: LOGO_BOX.w, h: LOGO_BOX.h });
     if (CONF) { const cw = textW(CONF, FS.note) + 0.1, right = W - 0.28 - (LOGO ? LOGO_BOX.w + 0.25 : 0); T(s, CONF, { x: right - cw, y: H - FH, w: cw, h: FH, fontSize: FS.note, bold: true, color: onBand, align: "right", valign: "middle", wrap: false }); }
   };
@@ -523,13 +748,21 @@ function createDeck(pres, opts = {}) {
   // 補足の sub：使うと知らせる（部品ごとに1回）。要る中身は名前に書き、要らないなら消す
   const SUB_WARNED = new Set();
   const warnSub = where => { if (SUB_WARNED.has(where + page)) return; SUB_WARNED.add(where + page); warn(`${where}に補足の小さな文字（sub）がある。補足は足さない。要る中身は名前に書く（単位は「（万円）」のように名前の後ろに）`); };
-  const checkTitle = t => {
+  const checkTitle = (t, w = BW, fs0 = FS.title) => {
     if (ACTION) { if (lineCount(t, 20, BW) > 2) warn(`題が2行を超える（${t}）。結論を1文に縮める`); return; }
-    if (textW(t, FS.title) > BW) warn(`タイトルが1行に収まらない（${t}）。冗長な語尾を削る`);
+    if (textW(t, fs0) > w) warn(`タイトルが1行に収まらない（${t}）。冗長な語尾を削る`);
     if (/。$/.test(t)) warn(`タイトルが文になっている（${t}）。結論の文はリードに置く`);
     // タイトルは「いまどの話か」の項目名だけ。主張はリードの1文に書く（同じことを、タイトルとリードで2回言わない）
     if (/[：:、]/.test(t)) warn(`タイトルに要点が入っている（${t}）。タイトルは項目名だけにし、主張はリードに書く`);
     else if (em(t) > 14) warn(`タイトルが長い（${t}）。項目名は全角14字まで`);
+  };
+
+  // 新しいページ：テーマに飾りがある種類は、そのスライドマスターを使う。無ければ今まで通り（白。区切りは濃い地）
+  const newSlide = type => {
+    if (MASTER[type] && MASTER[type].drawn) return pres.addSlide({ masterName: `DK_${type}` });
+    const s = pres.addSlide();
+    s.background = { color: type === "divider" ? C.dark : C.white };
+    return s;
   };
 
   // 標準ページ：章名（左上）・タイトル・リード・フッター（2.1）。lead は結論を2文まで。o.section＝章名、o.key＝ページの名前、o.nav:false でミニ目次を外す
@@ -565,65 +798,141 @@ function createDeck(pres, opts = {}) {
     const navNow = NAV && chapterNow ? NAV.find(n => n.ch === chapterNow || (n.subs || []).includes(chapterNow)) : null;
     if (title == null && navNow && !ACTION) title = navNow.name; // 章立て（nav）を1か所に書けば、タイトルはそこから取る
     if (title && navNow && !ACTION && title !== navNow.name) console.warn(`[deck-parts] P.${page + 1} タイトル（${title}）が、アジェンダの項目名（${navNow.name}）と違う。同じ言葉にする（同じ章の続きのページでも、タイトルは変えない）`);
-    const s = pres.addSlide();
-    s.background = { color: C.white };
+    const s = newSlide("content");
     track(s, o);
     FOCUS.push({ page, title, focus: o.focus });
     if (title && o.focus === undefined) warn("見る所の宣言がない（base の o.focus に、最初に目が行くべき要素を1つ書く。列挙だけのページは false）");
     if (title) HEAD_TEXT.add(String(title));
     if (o.sub) HEAD_TEXT.add(String(o.sub));
-    if (lead) { HEAD_TEXT.add(leadBreak(lead)); checkLead(title, lead); }
+    // 文字の置き場所（テーマの master.content.boxes で動かせる）
+    const sb = boxOf("content", "section", { x: M, y: Y.section, w: 6, h: 0.28, size: FS.body, color: C.gray });
+    const tb = boxOf("content", "title", { x: M, y: Y.title, w: BW, h: 0.6, size: FS.title, color: C.ink, bold: true, font: FHEAD });
+    const lb = boxOf("content", "lead", { x: M, y: Y.lead - 0.04, w: BW, h: 0.8, size: LEAD_FS, color: C.ink });
+    if (tb.y + Math.min(tb.h, 0.6) > lb.y + 0.25 && title && lead) warnTheme("content.overlap", "題の置き場所が、リードと重なる。boxes.title と boxes.lead の y を離す");
+    if (lb.y + lb.h > BODY + 0.12) warnTheme("content.leadLow", `リードの置き場所の下端が、本文の領域（y ${BODY}）に入る`);
+    const boxText = (b, color) => ({ x: b.x, y: b.y, w: b.w, h: b.h, fontSize: b.size, color: color ?? b.color, ...(b.bold ? { bold: true } : {}), ...(b.align ? { align: b.align } : {}), ...(b.valign ? { valign: b.valign } : {}), ...(b.font && b.font !== F ? { fontFace: b.font } : {}) });
+    if (lead) { HEAD_TEXT.add(leadBreak(lead, lb.size, lb.w)); checkLead(title, lead); }
     if (lead && (String(lead).match(/。/g) || []).length >= 3) warn("リードが3文以上ある。主張は1つにし、残りは同じ図を敷いた次のページに分ける（series）");
-    if (o.section) T(s, o.section, { x: M, y: Y.section, w: 6, h: 0.28, fontSize: FS.body, color: C.gray, wrap: false });
+    inChrome = true;
+    if (o.section) { checkReadable("content", "section", sb, sb.color, o.section, sb.size); T(s, o.section, { ...boxText(sb), wrap: false }); }
     if (title) {
-      checkTitle(title);
-      if (ACTION) T(s, title, { x: M, y: Y.title - 0.12, w: BW, h: 0.95, fontSize: 20, bold: true, valign: "middle", lineSpacingMultiple: 1.2, ...(FHEAD !== F ? { fontFace: FHEAD } : {}) });
-      else T(s, title, { x: M, y: Y.title, w: BW, h: 0.6, fontSize: FS.title, bold: true, ...(FHEAD !== F ? { fontFace: FHEAD } : {}) });
+      checkTitle(title, tb.w, tb.size);
+      checkReadable("content", "title", tb, tb.color, title, tb.size);
+      if (ACTION) T(s, title, { ...boxText(tb), y: tb.y - 0.12, h: 0.95, fontSize: 20, valign: "middle", lineSpacingMultiple: 1.2 });
+      else T(s, title, boxText(tb));
       // 題に副題を付けない（2026-11-24。題は項目名だけ・薄い補足の文字を足さない）。同じ章で別の図が続くときも題は同じにし、何のページかはリードで言う
       if (o.sub && !ACTION) warn(`題に副題を付けない（${o.sub}）。題はアジェンダの項目名だけにし、何のページかはリードで言う`);
-      if (false) { if (em(o.sub) > 12) warn(`副題が長い（${o.sub}。全角12字まで）`); T(s, o.sub, { x: M + textW(title, FS.title) + 0.3, y: Y.title + 0.16, w: 5, h: 0.4, fontSize: FS.head, bold: true, color: C.gray, valign: "middle", wrap: false }); }
     }
     if (ACTION && lead) warn("結論を題に書く資料（titleStyle: \"action\"）では、リードを置かない（主張を書く場所は1か所）");
     if (lead) {
-      const t = leadBreak(lead);
-      const n = lineCount(t, LEAD_FS, BW * 0.99);
+      const t = leadBreak(lead, lb.size, lb.w);
+      const n = lineCount(t, lb.size, lb.w * 0.99);
       if (n > 2) warn(`リードが${n}行になる。図を動かさず文を縮める（2.1）`);
-      T(s, t, { x: M, y: Y.lead - 0.04, w: BW, h: 0.8, fontSize: LEAD_FS, lineSpacingMultiple: 1.2 });
+      checkReadable("content", "lead", lb, lb.color, t.split("\n")[0], lb.size);
+      T(s, t, { ...boxText(lb), lineSpacingMultiple: 1.2 });
     }
+    inChrome = false;
     BRANDS_ON[page] = {}; // 題とリードに出た製品名は数えない（アイコンが要るのは、図の中の要素として出したとき）
     footer(s);
     return s;
   };
 
+  // 章扉・区切りの文字を、テーマの置き場所に書く
+  const placed = (s, type, name, text, def, extra = {}) => {
+    if (text === undefined || text === null || text === "") return;
+    const b = boxOf(type, name, def);
+    checkReadable(type, name, b, b.color, String(text), b.size);
+    inChrome = true;
+    T(s, text, { x: b.x, y: b.y, w: b.w, h: b.h, fontSize: b.size, color: b.color, ...(b.bold ? { bold: true } : {}), ...(b.align ? { align: b.align } : {}), ...(b.valign ? { valign: b.valign } : {}), ...(b.font && b.font !== F ? { fontFace: b.font } : {}), ...extra });
+    inChrome = false;
+  };
+
   // 表紙：既定はタイトルと日付だけ（既定7）。経営会議用の報告書だけ kicker（上の小見出し）・sub（副題）・affil（所属）を足す（4.12）
   // テーマの cover：style（auto＝今の決め方／simple＝題と日付／full＝小見出し・題・短い線・副題・日付と所属）、affil（所属の既定）、logo と logoPos（ロゴの位置）
   const cover = (o) => {
-    const s = pres.addSlide();
-    s.background = { color: C.white };
-    track(s, { nav: false, key: o.key });
+    const s = newSlide("cover");
+    track(s, { nav: false, key: o.key }, "cover");
     const affil = o.affil ?? COVER.affil;
     const full = COVER.style === "full" ? true : COVER.style === "simple" ? false : (o.kicker || o.sub || affil);
-    // 題が 48pt で本文幅に収まらないときは 40pt に下げて1行に保つ（章扉の「26字を超えたら26」と同じ考え方）
-    const coverFs = textW(o.title, FS_DISPLAY.cover) > BW ? 40 : FS_DISPLAY.cover;
-    if (coverFs !== FS_DISPLAY.cover) warn(`表紙の題が 48pt で1行に収まらないため 40pt にした（${o.title}）`);
+    const custom = !!(MASTER.cover && Object.keys(MASTER.cover.boxes).length); // テーマで表紙の置き場所を決めている
+    const align = (custom && MASTER.cover.boxes.title && MASTER.cover.boxes.title.align) || "center";
+    const put = (name, text, def, extra = {}) => {
+      if (!text) return;
+      const b = boxOf("cover", name, { align, color: C.ink, valign: "middle", ...def });
+      if (custom) used.forEach(u => {
+        const h1 = Math.min(b.h, lineH(b.size, 1.1)), y1 = b.valign === "top" ? b.y : b.y + (b.h - h1) / 2;
+        if (Math.min(y1 + h1, u.y + u.h) - Math.max(y1, u.y) > 0.05 && Math.min(b.x + b.w, u.x + u.w) - Math.max(b.x, u.x) > 0.1) warnTheme(`cover.${name}.${u.name}`, `表紙の ${name} と ${u.name} が重なる。boxes.${name} か boxes.${u.name} の y を離す`);
+      });
+      { const h1 = Math.min(b.h, lineH(b.size, 1.1)); used.push({ name, x: b.x, w: b.w, h: h1, y: b.valign === "top" ? b.y : b.y + (b.h - h1) / 2 }); }
+      checkReadable("cover", name, b, b.color, text, b.size);
+      inChrome = true;
+      T(s, text, { x: b.x, y: b.y, w: b.w, h: b.h, fontSize: b.size, color: b.color, align: b.align, valign: b.valign, ...(b.bold ? { bold: true } : {}), ...(b.font && b.font !== F ? { fontFace: b.font } : {}), ...extra });
+      inChrome = false;
+    };
+    // 題が置き場所に1行で収まらないときは、2行分の高さがあれば2行、無ければ下げて1行に保つ
+    const tdef = boxOf("cover", "title", { x: 0, y: full ? 2.6 : 2.75, w: W, h: 1.0, size: FS_DISPLAY.cover });
+    let coverFs = tdef.size;
+    {
+      const wMax = Math.min(tdef.w, BW) * 0.98, was = coverFs;
+      if (!custom) {
+        if (textW(o.title, coverFs) > wMax) coverFs = Math.round(coverFs * 40 / 48);
+      } else if (!String(o.title).includes("\n") && textW(o.title, coverFs) > wMax) {
+        const one = Math.floor(wMax * 72 / em(o.title));
+        const twoOk = tdef.h >= 2 * lineH(coverFs, 1.0) && textW(o.title, coverFs) <= wMax * 1.8 && !hasOrphan(o.title, coverFs, wMax);
+        if (one >= coverFs * 0.7) coverFs = one;
+        else if (!twoOk) coverFs = Math.max(Math.round(coverFs * 0.7), Math.floor(wMax * 1.7 * 72 / em(o.title)));
+      }
+      if (coverFs !== was) warn(`表紙の題が ${was}pt で1行に収まらないため ${coverFs}pt にした（${o.title}）`);
+    }
+    let coverTitle = o.title;
+    if (custom && !String(o.title).includes("\n") && textW(o.title, coverFs) > Math.min(tdef.w, BW) * 0.98) {
+      const t = String(o.title), wMax = Math.min(tdef.w, BW) * 0.98;
+      let best = null;
+      for (let i = 2; i < t.length - 1; i++) {
+        if (!"のとをにへでは、。・：　 ".includes(t[i - 1])) continue;
+        const a = t.slice(0, i).trim(), b = t.slice(i).trim(), longer = Math.max(textW(a, coverFs), textW(b, coverFs));
+        if (longer <= wMax && (!best || longer < best.longer)) best = { text: `${a}\n${b}`, longer };
+      }
+      if (best) coverTitle = best.text;
+    }
+    const left = custom ? { x: tdef.x, w: tdef.w } : { x: 0, w: W };
+    // 置き場所を指定した表紙は、指定のない行を、題の置き場所の上下に順に並べる
+    const used = [], own = (MASTER.cover && MASTER.cover.boxes) || {};
+    const under = tdef.y + tdef.h;
+    const noSubSlot = custom && !!o.sub && !own.sub && own.date?.y !== undefined; // 副題の置き場所が無く、日付の置き場所はある
+    const tight = noSubSlot && own.date.y + 0.9 > H - 0.05; // 日付の置き場所が下端に近い
+    const subY = own.sub?.y ?? (noSubSlot ? own.date.y - (tight ? 0.2 : 0) : custom ? under + 0.1 : 4.1);
+    const dateY = def => (custom ? (full && o.sub ? subY + (own.sub?.h ?? 0.5) + 0.15 : under + 0.15) : def);
     if (!full) {
-      T(s, o.title, { x: 0, y: 2.75, w: W, h: 1.0, fontSize: coverFs, bold: true, align: "center", valign: "middle", ...(FHEAD !== F ? { fontFace: FHEAD } : {}) });
+      put("title", coverTitle, { x: 0, y: 2.75, w: W, h: 1.0, size: coverFs, bold: true, font: FHEAD }, { fontSize: coverFs });
       const dl = [o.date, affil].filter(Boolean).join("　"); // simple でも所属があれば日付の横に
-      if (dl) T(s, dl, { x: 0, y: 4.05, w: W, h: 0.4, fontSize: FS.lead, color: C.soft, align: "center", valign: "middle" });
+      put("date", dl, { ...left, y: dateY(4.05), h: 0.4, size: FS.lead, color: C.soft });
     } else {
-      if (o.kicker) T(s, o.kicker, { x: 0, y: 2.05, w: W, h: 0.4, fontSize: 14, bold: true, align: "center", charSpacing: 4 });
-      T(s, o.title, { x: 0, y: 2.6, w: W, h: 1.0, fontSize: FS_DISPLAY.cover, bold: true, align: "center", ...(FHEAD !== F ? { fontFace: FHEAD } : {}) });
-      s.addShape(SH.LINE, { x: W / 2 - 0.6, y: 3.85, w: 1.2, h: 0, line: { color: "E6F0FA", width: 2.25 } });
-      if (o.sub) T(s, o.sub, { x: 0, y: 4.1, w: W, h: 0.5, fontSize: 18, color: "666666", align: "center" });
-      T(s, [o.date, affil].filter(Boolean).join("　"), { x: 0, y: 5.1, w: W, h: 0.4, fontSize: 14, align: "center" });
+      put("kicker", o.kicker, { ...left, y: custom ? tdef.y - 0.5 : 2.05, h: 0.4, size: 14, bold: true, valign: "top" }, { charSpacing: 4 });
+      put("title", coverTitle, { x: 0, y: 2.6, w: W, h: 1.0, size: coverFs, bold: true, font: FHEAD, valign: "top" }, { fontSize: coverFs });
+      if (!custom) s.addShape(SH.LINE, { x: W / 2 - 0.6, y: 3.85, w: 1.2, h: 0, line: { color: "E6F0FA", width: 2.25 } });
+      put("sub", o.sub, { ...left, ...(noSubSlot ? { x: own.date.x, w: own.date.w, align: own.date.align || align } : {}), y: subY, h: tight ? 0.34 : 0.5, size: tight ? 16 : 18, color: MASTER.cover ? C.soft : "666666", valign: "top" });
+      const ownAffil = custom && MASTER.cover.boxes.affil;
+      const ownDate = own.date;
+      if (noSubSlot) MASTER.cover.boxes.date = { ...ownDate, ...(tight ? { y: subY + 0.4, h: 0.3, size: 12, valign: "top" } : { y: ownDate.y + 0.55 }) };
+      put("date", [o.date, ownAffil ? null : affil].filter(Boolean).join("　"), { ...left, y: dateY(5.1), h: 0.4, size: 14, valign: "top" });
+      if (noSubSlot) MASTER.cover.boxes.date = ownDate; // 同じ設定で2枚目の表紙を作るときのために戻す
+      if (ownAffil) put("affil", affil, { ...left, y: dateY(5.1) + 0.45, h: 0.4, size: 14, valign: "top" });
     }
     if (COVER.logo && fs.existsSync(COVER.logo)) {
-      const pos = COVER.logoPos || "top-left", b = fitBox(COVER.logo, 2.4, 0.6);
-      const x = pos === "top-right" ? W - M - b.w : pos === "center" ? (W - b.w) / 2 : M;
-      const y = pos === "center" ? (full ? (o.kicker ? 1.95 : 2.45) : 2.6) - b.h - 0.1 : 0.5;
-      s.addImage({ path: COVER.logo, x, y, w: b.w, h: b.h });
+      const lbx = MASTER.cover && MASTER.cover.boxes.logo;
+      if (lbx) {
+        const b = fitBox(COVER.logo, lbx.w ?? 2.4, lbx.h ?? 0.6), bw = lbx.w ?? b.w;
+        const x = (lbx.x ?? M) + (lbx.align === "right" ? bw - b.w : lbx.align === "center" ? (bw - b.w) / 2 : 0);
+        s.addImage({ path: COVER.logo, x, y: lbx.y ?? 0.5, w: b.w, h: b.h });
+      } else {
+        const pos = COVER.logoPos || "top-left", b = fitBox(COVER.logo, 2.4, 0.6);
+        const x = pos === "top-right" ? W - M - b.w : pos === "center" ? (W - b.w) / 2 : M;
+        const y = pos === "center" ? (full ? (o.kicker ? 1.95 : 2.45) : 2.6) - b.h - 0.1 : 0.5;
+        s.addImage({ path: COVER.logo, x, y, w: b.w, h: b.h });
+      }
     }
-    footer(s);
+    footer(s, "cover");
     return s;
   };
 
@@ -631,25 +940,30 @@ function createDeck(pres, opts = {}) {
   const chapter = (num, title, o = {}) => {
     const n = o.ch ?? parseInt(num, 10);
     if (!Number.isNaN(n)) chapterNow = n;
-    const s = pres.addSlide();
-    s.background = { color: C.white };
-    track(s, { key: o.key || `ch${String(num).replace(/\.$/, "")}`, nav: o.nav });
-    T(s, num, { x: M + 0.4, y: 2.75, w: 3, h: 0.5, fontSize: FS_DISPLAY.chapterNum, color: C.gray });
-    T(s, title, { x: M + 0.4, y: 3.25, w: 12.0, h: 0.9, fontSize: em(title) > 26 ? FS_DISPLAY.chapterLong : FS_DISPLAY.chapter, bold: true, ...(FHEAD !== F ? { fontFace: FHEAD } : {}) });
-    if (o.sub) T(s, o.sub, { x: M + 0.4, y: 4.25, w: 12.0, h: 0.8, fontSize: 14, color: C.gray, lineSpacingMultiple: 1.3 });
-    footer(s);
+    const s = newSlide("chapter");
+    track(s, { key: o.key || `ch${String(num).replace(/\.$/, "")}`, nav: o.nav }, "chapter");
+    // 題の置き場所だけを指定したテーマでは、番号は題の上（上に空きが無ければ下）に置く
+    const cb = (MASTER.chapter && MASTER.chapter.boxes) || {}, ct = cb.title;
+    const numAt = ct && ct.y !== undefined && !cb.num
+      ? { x: ct.x ?? M + 0.4, w: ct.w ?? 3, align: ct.align, y: ct.y >= 1.2 ? ct.y - 0.55 : ct.y + (ct.h ?? 0.9) + 0.7 }
+      : { x: M + 0.4, y: 2.75, w: 3 };
+    placed(s, "chapter", "num", num, { ...numAt, h: 0.5, size: FS_DISPLAY.chapterNum, color: C.gray });
+    placed(s, "chapter", "title", title, { x: M + 0.4, y: 3.25, w: 12.0, h: 0.9, size: em(title) > 26 ? FS_DISPLAY.chapterLong : FS_DISPLAY.chapter, color: C.ink, bold: true, font: FHEAD });
+    placed(s, "chapter", "sub", o.sub, { x: M + 0.4, y: 4.25, w: 12.0, h: 0.8, size: 14, color: C.gray }, { lineSpacingMultiple: 1.3 });
+    footer(s, "chapter");
     return s;
   };
 
   // 区切りページ：紺地に白の題（一覧表示でも切り替わりが分かるように塗る。4.12）。濃紺の全面塗りはここだけ（10.2）
   const divider = (title, sub, o = {}) => {
     if (o.ch !== undefined) chapterNow = o.ch;
-    const s = pres.addSlide();
-    s.background = { color: C.dark };
-    track(s, { key: o.key, nav: false });
-    T(s, title, { x: M + 0.4, y: 3.0, w: 12.0, h: 0.9, fontSize: FS_DISPLAY.chapter, bold: true, color: C.white, ...(FHEAD !== F ? { fontFace: FHEAD } : {}) });
-    if (sub) T(s, sub, { x: M + 0.4, y: 4.0, w: 12.0, h: 0.9, fontSize: FS.lead, color: "C9D3E0", lineSpacingMultiple: 1.3 });
-    footer(s);
+    const s = newSlide("divider");
+    track(s, { key: o.key, nav: false }, "divider");
+    // 区切りの地を明るくしたテーマでは、文字を濃い色にする
+    const light = MASTER.divider && MASTER.divider.drawn && contrast(C.white, colorAt("divider", M + 2, 3.45)) < 3;
+    placed(s, "divider", "title", title, { x: M + 0.4, y: 3.0, w: 12.0, h: 0.9, size: FS_DISPLAY.chapter, color: light ? C.ink : C.white, bold: true, font: FHEAD });
+    placed(s, "divider", "sub", sub, { x: M + 0.4, y: 4.0, w: 12.0, h: 0.9, size: FS.lead, color: light ? C.soft : "C9D3E0" }, { lineSpacingMultiple: 1.3 });
+    footer(s, "divider");
     return s;
   };
 
@@ -696,25 +1010,60 @@ function createDeck(pres, opts = {}) {
   };
 
   // ミニ目次：右上 y0.38、FS.note（16pt）右揃え。全ページで同じ項目・同じ位置、現在の章だけ ink bold（4.12 miniAgenda）。finalize で全ページに一括で描く
-  const miniTokens = () => {
+  // ナビゲーションの形：テーマの nav.style（text＝文字だけ／underline＝今の章に下線／tabs＝箱を並べる／bar＝全幅の帯）。build.js の miniNav が勝つ
+  let NAVT = TH.nav || {};
+  const NAV_STYLES = ["text", "underline", "tabs", "bar"];
+  let NAV_STYLE = opts.miniNav === false || NAVT.style === false ? null : NAVT.style ?? (opts.miniNav === true || Object.keys(NAVT).length ? "text" : null);
+  if (NAV_STYLE && !NAV_STYLES.includes(NAV_STYLE)) { themeWarn("nav", `nav.style は ${NAV_STYLES.join("・")} か false にする（${NAV_STYLE}）。text を使う`); NAV_STYLE = "text"; }
+  const navLayout = () => {
     const NUM = "①②③④⑤⑥⑦⑧⑨";
-    const toks = [];
+    let size = NAVT.size ?? (NAV_STYLE === "text" ? FS.note : 14);
+    if (size < 11 || size > 18) { themeWarn("nav", `nav.size は 11〜18 にする（${size}）`); size = Math.min(18, Math.max(11, size)); }
+    const bar = NAV_STYLE === "bar", tabs = NAV_STYLE === "tabs";
+    const h = NAVT.h ?? (bar ? 0.42 : tabs ? 0.34 : 0.28), y = NAVT.y ?? (bar ? 0 : Y.section);
+    const items = [];
     NAV.forEach((nv, i) => {
-      if (i) toks.push({ gap: 0.3 });
-      toks.push({ t: nv.name, on: a => a === nv.ch, near: a => (nv.subs || []).includes(a) });
-      (nv.subs || []).forEach((c, k) => { toks.push({ gap: k ? 0.02 : 0.08 }); toks.push({ t: NUM[k], on: a => a === c }); });
+      items.push({ t: NAVT.numbers ? `${i + 1}　${nv.name}` : nv.name, on: a => a === nv.ch, near: a => (nv.subs || []).includes(a), gap: i ? (tabs ? 0.06 : 0.3) : 0 });
+      if (!bar && NAVT.align !== "justify") (nv.subs || []).forEach((c, k) => items.push({ t: NUM[k], on: a => a === c, gap: k ? 0.04 : 0.08 }));
     });
-    let x = W - M;
-    for (let k = toks.length - 1; k >= 0; k--) { const o = toks[k]; if (o.gap) { x -= o.gap; continue; } o.w = [...o.t].reduce((a, c) => a + (c.charCodeAt(0) < 0x2000 ? 0.08 : 0.15), 0) * 1.06; x -= o.w; o.x = x; }
-    return toks.filter(o => !o.gap);
+    const align = NAVT.align === "left" ? "left" : "right";
+    if (bar || NAVT.align === "justify") {
+      const x = NAVT.x ?? (bar ? 0 : M), w = NAVT.w ?? (bar ? W : W - 2 * M), gap = bar ? 0 : 0.1, cw = (w - gap * (items.length - 1)) / items.length;
+      items.forEach((o, i) => { o.x = x + i * (cw + gap); o.w = cw; if (textW(o.t, size) > cw - 0.1) warnTheme("nav.long", `ナビゲーションの項目が帯の区画に収まらない（${o.t}）。項目名を縮めるか nav.size を下げる`); });
+      return { items, size, y, h, x, w, bar, tabs, justify: !bar };
+    }
+    items.forEach(o => { o.w = textW(o.t, size) * 1.04 + (tabs ? 0.28 : 0.02); });
+    const total = items.reduce((a, o) => a + o.w + o.gap, 0);
+    let x = align === "left" ? NAVT.x ?? M : (NAVT.x !== undefined ? NAVT.x + (NAVT.w ?? total) : W - M) - total;
+    if (total > W - 2 * M + 0.01) warnTheme("nav.wide", "ナビゲーションの項目が、横幅に収まらない。章を減らすか、項目名を縮める");
+    items.forEach(o => { x += o.gap; o.x = x; x += o.w; });
+    return { items, size, y, h, x: items[0].x, w: total, bar, tabs };
   };
-  const miniAgenda = (s, active, toks) => toks.forEach(o => {
-    const on = o.on(active), near = o.near && o.near(active);
-    T(s, o.t, { x: o.x, y: Y.section, w: o.w, h: 0.24, fontSize: FS.note, align: "right", wrap: false, color: on || near ? C.ink : C.pale, bold: on });
-  });
+  const drawNav = (s, active, L, type) => {
+    const color = (v, def) => (v !== undefined ? hexOf(v, def) : def);
+    const dark = !L.bar && MASTER[type] && MASTER[type].drawn && worstContrast(type, { x: L.x, y: L.y, w: L.w, h: L.h }, C.ink) < 3;
+    ((MASTER[type] && MASTER[type].objects) || []).forEach((ob, i) => {
+      if ((ob.transparency ?? 0) >= 80 || (ob.x <= L.x + 0.01 && ob.y <= L.y + 0.02 && ob.x + ob.w >= L.x + L.w - 0.01 && ob.y + ob.h >= L.y + L.h - 0.02)) return;
+      if (Math.min(L.x + L.w, ob.x + ob.w) - Math.max(L.x, ob.x) > 0.05 && Math.min(L.y + L.h, ob.y + (ob.h || 0.02)) - Math.max(L.y, ob.y) > 0.05) warnTheme(`nav.${type}.obj${i}`, `ナビゲーションが、${type} の飾り objects[${i}]（${ob.type}）に重なる。nav.x・nav.y か飾りの位置を替える`);
+    });
+    const idle = color(NAVT.color, dark ? "D5DBE5" : C.soft);
+    const onFill = color(NAVT.activeFill, dark ? C.white : C.emph);
+    const on = color(NAVT.activeColor, L.tabs || L.bar ? (relLum(onFill) > 0.35 ? C.ink : C.white) : dark ? C.white : C.ink);
+    const base0 = color(NAVT.fill, C.tint);
+    if (L.bar) rect(s, L.x, L.y, L.w, L.h, base0);
+    L.items.forEach(o => {
+      const act = o.on(active) || (o.near && o.near(active));
+      if (L.tabs) rect(s, o.x, L.y, o.w, L.h, act ? onFill : base0);
+      else if (L.bar && act) rect(s, o.x, L.y, o.w, L.h, onFill);
+      const tabIdle = color(NAVT.color, C.soft);
+      if (NAV_STYLE === "underline" && !act && NAVT.fill !== undefined) rect(s, o.x, L.y + L.h + 0.01, o.w, 0.04, base0);
+      T(s, o.t, { x: o.x, y: L.y, w: o.w, h: L.h, fontSize: L.size, align: L.tabs || L.bar ? "center" : L.justify ? "left" : "right", valign: "middle", wrap: false, color: act ? on : L.tabs || L.bar ? tabIdle : idle, bold: !!act });
+      if (NAV_STYLE === "underline" && act) rect(s, o.x, L.y + L.h + 0.01, o.w, 0.04, color(NAVT.activeFill, dark ? C.white : C.emph));
+    });
+  };
 
   // 出典の1行：既定では付けない（既定6）。詳細へ飛ばしたい数値だけ、リンク付きで1行置く（10.9）
-  const source = (s, runs) => T(s, typeof runs === "string" ? runs : runs, { x: M, y: FOOT_TEXT ? H - 0.86 : Y.source, w: BW, h: 0.3, fontSize: FS.body, color: C.soft, valign: "middle" }); // 出典は要る情報なので、読める大きさと色で // フッターに資料名があるときは、その線の上に置く
+  const source = (s, runs) => T(s, typeof runs === "string" ? runs : runs, { x: M, y: FOOT_TEXT ? Math.min(H - 0.86, Y.source) : Y.source, w: BW, h: 0.3, fontSize: FS.body, color: C.soft, valign: "middle" }); // 出典は要る情報なので、読める大きさと色で // フッターに資料名があるときは、その線の上に置く
 
   // ---- 小部品 ----
   // 塗りの右矢印（既定 gray、枠なし）。文字の「→」を混ぜない
@@ -939,7 +1288,7 @@ function createDeck(pres, opts = {}) {
 
   // ---- 重ね技 ----
   // 前ページと同じ図を同じ関数・同じ座標で描いた上に、白の半透明を重ねて薄くする（transparency 18〜30）。前面に吹き出し・メッセージを置く
-  const overlay = (s, x = 0, y = 2.15, w = W, h = 4.45, transparency = 30) => s.addShape(SH.RECTANGLE, { x, y, w, h, fill: { color: C.white, transparency }, line: { type: "none" } });
+  const overlay = (s, x = 0, y = 2.15, w = W, h = BOTTOM - 2.15, transparency = 30) => s.addShape(SH.RECTANGLE, { x, y, w, h, fill: { color: PAGE_BG(), transparency }, line: { type: "none" } });
   // 前面の吹き出し：白箱に赤 1.25 枠＋弱い影、赤の番号丸、見出し bold＋起きたこと soft。引き出し線で図中の位置（赤の番号丸）を指す（4.8）
   //   o: { x, y, w, h, no, head, body, to: [x, y]（指す位置）, from: [x, y]（線の出どころ。既定は箱の下辺中央）, refKey（右下に「P.n」） , refPrefix }
   const callout = (s, o) => {
@@ -998,7 +1347,7 @@ function createDeck(pres, opts = {}) {
     // spot：見る所の矩形（{x, y, w, h} か、図の戻り値から矩形を返す関数）。そこだけ覆わず、元の濃さで残す。only を持たない部品でも使える。見る所は1つなので、矩形も1つ
     const hole = typeof o.spot === "function" ? o.spot(r) : o.spot;
     if (hole) {
-      const ax = a.x ?? 0, ay = a.y ?? 2.15, aw = a.w ?? W, ah = a.h ?? 4.45, t = o.transparency ?? 25, pd = 0.06;
+      const ax = a.x ?? 0, ay = a.y ?? 2.15, aw = a.w ?? W, ah = a.h ?? BOTTOM - 2.15, t = o.transparency ?? 25, pd = 0.06;
       const hx = Math.max(ax, hole.x - pd), hy = Math.max(ay, hole.y - pd), hx2 = Math.min(ax + aw, hole.x + hole.w + pd), hy2 = Math.min(ay + ah, hole.y + hole.h + pd);
       [[ax, ay, aw, hy - ay], [ax, hy2, aw, ay + ah - hy2], [ax, hy, hx - ax, hy2 - hy], [hx2, hy, ax + aw - hx2, hy2 - hy]].forEach(([x, y, w, h]) => { if (w > 0.005 && h > 0.005) overlay(s, x, y, w, h, t); });
     } else overlay(s, a.x, a.y, a.w, a.h, o.transparency ?? 25);
@@ -1075,7 +1424,7 @@ function createDeck(pres, opts = {}) {
     const nFV = o.steps.filter(x => x.focusValue).length + o.total.parts.filter(x => x.focusValue).length + (o.total.focusValue ? 1 : 0);
     if (nFV > 1) warn("ウォーターフォール：主役の値（focusValue）は1つだけにする");
     const fvT = (x, y, w, text, valign = "bottom") => T(s, text, { x, y, w, h: 0.62, fontSize: FOCUS_FS, bold: true, color: C.emph, align: "center", valign, wrap: false });
-    const fmt = o.fmt || (v => v.toLocaleString()), base0 = o.base ?? 6.25, top = o.top ?? 2.95, lblW = o.labelW ?? 2.55;
+    const fmt = o.fmt || (v => v.toLocaleString()), base0 = o.base ?? BOTTOM - 0.35, top = o.top ?? 2.95, lblW = o.labelW ?? 2.55;
     const x0 = o.x ?? M, wAll = o.w ?? BW, pre = o.before ? 1 : 0, n = o.steps.length + pre + 1;
     const total = o.total.parts.reduce((a, p) => a + p.value, 0), stepSum = o.steps.reduce((a, p) => a + p.value, 0);
     if (Math.abs(total - stepSum) > 0.5) warn(`ウォーターフォールの累計（${total}）と増分の合計（${stepSum}）が一致しない`);
@@ -1232,7 +1581,8 @@ function createDeck(pres, opts = {}) {
     const G = o.cagr, min = o.min ?? Math.min(0, ...all) * 1.25;
     let max = o.max ?? Math.max(0, ...all) * (G ? 1.55 : 1.12);
     if (G && min < 0) warn("年平均成長率（cagr）は、0 から始まる正の値の棒で見せる");
-    const x0 = o.x0 ?? M + 0.7, x1 = o.x1 ?? W - M - 0.6, top = o.top ?? 2.85, bottom = o.bottom ?? 6.0;
+    const x0 = o.x0 ?? M + 0.7, x1 = o.x1 ?? W - M - 0.6, top = o.top ?? 2.85;
+    const bottom = BOTTOM < 6.6 ? Math.min(o.bottom ?? BOTTOM - 0.6, BOTTOM - 0.6) : o.bottom ?? BOTTOM - 0.6;
     let k = (bottom - top) / (max - min), base = top + max * k;
     const slot = (x1 - x0) / nC;
     const gap = o.gap ?? 0.08, bw = o.bw ?? Math.min(0.62, (slot * 0.62 - gap * (nS - 1)) / nS), gw = bw * nS + gap * (nS - 1);
@@ -1311,8 +1661,12 @@ function createDeck(pres, opts = {}) {
     const maxP = Math.max(0, ...vals), maxN = Math.max(0, ...vals.map(v => -v)), lw = o.labelW ?? 1.9, valW = 1.05;
     const left = M + lw + (maxN ? Math.max(valW, fvW(false)) : 0), right = W - M - Math.max(valW, fvW(true));
     const k = (right - left) / (maxP + maxN || 1), Z = left + maxN * k;
-    const bh = o.bh ?? 0.34, pitch = o.pitch ?? 0.44;
+    let bh = o.bh ?? 0.34, pitch = o.pitch ?? 0.44;
     const ys = []; let y = o.y0 ?? 2.6;
+    if (BOTTOM < 6.6) { // テーマで下端を下げたときは、行の間隔を詰める
+      const need = rows.reduce((a, r) => a + (r ? 1 : 0.5), 0), room = (BOTTOM - y) / need;
+      if (room < pitch) { bh = Math.max(0.24, bh * room / pitch); pitch = room; }
+    }
     rows.forEach(r => { ys.push(y); y += r ? pitch : pitch / 2; });
     const OBS = []; // 棒と値の文字の範囲（主役の値の重なりの点検）
     rows.forEach((r, i) => {
@@ -1354,7 +1708,7 @@ function createDeck(pres, opts = {}) {
   //   o.topLabel: i => 文字（棒の上に置く値。合計や主役の区分の割合など、リードで言う数値）, o.x0, o.x1, o.top, o.base, o.max, o.bw
   const ribbonBars = (s, o) => {
     chartPage();
-    const n = o.cats.length, x0 = o.x0 ?? M + 0.6, x1 = o.x1 ?? W - M - 1.9, top = o.top ?? 2.6, base = o.base ?? 6.2;
+    const n = o.cats.length, x0 = o.x0 ?? M + 0.6, x1 = o.x1 ?? W - M - 1.9, top = o.top ?? 2.6, base = o.base ?? BOTTOM - 0.4;
     const tot = i => o.series.reduce((a, sr) => a + sr.values[i], 0);
     const max = o.max ?? Math.max(...o.cats.map((_, i) => tot(i))) * 1.12, k = (base - top) / max, slot = (x1 - x0) / n, bw = o.bw ?? Math.min(0.62, slot * 0.55);
     const bx = i => x0 + i * slot + (slot - bw) / 2;
@@ -1445,7 +1799,7 @@ function createDeck(pres, opts = {}) {
       s.addShape(SH.LINE, { x: gx, y: y0 + 0.36, w: 0, h: bottom - y0 - 0.36, line: { color: meet ? C.gray : C.accent, width: g.strong ? 3 : meet ? 1 : 1.75, dashType: "dash" } });
       T(s, g.label, { x: gx - 0.95, y: y0 - 0.06, w: 1.9, h: 0.42, fontSize: FS.body, bold: true, color: meet ? C.gray : C.accent, align: "center", valign: "bottom", lineSpacingMultiple: 1.05 });
     });
-    if (bottom > (FOOT_TEXT ? 6.9 : 7.0)) warn(`ジャーニーの表の下端 ${bottom.toFixed(2)} がフッターに近い（行の高さを詰める）`);
+    if (bottom > BOTTOM + (FOOT_TEXT ? 0.3 : 0.4)) warn(`ジャーニーの表の下端 ${bottom.toFixed(2)} がフッターに近い（行の高さを詰める）`);
     return { cx, cw, rowY, bottom };
   };
 
@@ -3061,7 +3415,7 @@ function createDeck(pres, opts = {}) {
     const ser = o.series, n = o.cats.length, fmt = o.fmt || (v => fmtNum(v));
     const FV = o.focusValue, isFV = (j, i) => !!FV && FV[0] === j && FV[1] === i;
     if (FV && (!ser[FV[0]] || ser[FV[0]].values[FV[1]] == null)) warn(`折れ線：主役の値（focusValue: [${FV}]）の点が無い`);
-    const lw = o.labelW ?? 1.9, x0 = o.x0 ?? M + 0.5, x1 = o.x1 ?? W - M - lw - 0.2, top = o.top ?? 2.85, bottom = o.bottom ?? 6.2;
+    const lw = o.labelW ?? 1.9, x0 = o.x0 ?? M + 0.5, x1 = o.x1 ?? W - M - lw - 0.2, top = o.top ?? 2.85, bottom = o.bottom ?? BOTTOM - 0.4;
     // 折れ線は3本まで。推計（予測）が何本もあるときは、線を引かず、推計の幅（range）の帯で見せる（2026-11-24）
     if (ser.length > 3) warn(`折れ線が ${ser.length} 本ある。3本までにする。推計がいくつもあるときは、o.range（推計の幅の帯）で見せる`);
     const R = o.range, all = ser.flatMap(sr => sr.values.filter(v => v != null)).concat((o.targets || []).map(t => t.value)).concat(R ? [...R.low, ...R.high].filter(v => v != null) : []);
@@ -3137,7 +3491,7 @@ function createDeck(pres, opts = {}) {
   //   o.x0, o.x1, o.top, o.bottom, o.max, o.fmt, o.labelW（1.9）, o.catEvery
   const areaChart = (s, o) => {
     const ser = o.series, n = o.cats.length, fmt = o.fmt || (v => fmtNum(v));
-    const lw = o.labelW ?? 1.9, x0 = o.x0 ?? M + 0.5, x1 = o.x1 ?? W - M - lw - 0.2, top = o.top ?? 2.85, bottom = o.bottom ?? 6.2;
+    const lw = o.labelW ?? 1.9, x0 = o.x0 ?? M + 0.5, x1 = o.x1 ?? W - M - lw - 0.2, top = o.top ?? 2.85, bottom = o.bottom ?? BOTTOM - 0.4;
     const tot = i => ser.reduce((a, sr) => a + sr.values[i], 0);
     const max = o.max ?? Math.max(...o.cats.map((_, i) => tot(i))) * 1.1, step = (x1 - x0) / (n - 1);
     const xOf = i => x0 + i * step, yOf = v => bottom - v / max * (bottom - top);
@@ -3167,7 +3521,7 @@ function createDeck(pres, opts = {}) {
   //   戻り値: { bx(i), seg[i][j]=[上, 下], bw, slot, base }
   const stackBars = (s, o) => {
     const n = o.cats.length, ser = o.series, pct = !!o.pct, lw = o.labelW ?? 1.8;
-    const x0 = o.x0 ?? M + 0.3, x1 = o.x1 ?? W - M - lw, top = o.top ?? 2.85, base = o.base ?? 6.2;
+    const x0 = o.x0 ?? M + 0.3, x1 = o.x1 ?? W - M - lw, top = o.top ?? 2.85, base = o.base ?? BOTTOM - 0.4;
     const tot = i => ser.reduce((a, sr) => a + sr.values[i], 0);
     const max = pct ? 1 : (o.max ?? Math.max(...o.cats.map((_, i) => tot(i))) * 1.08);
     const slot = (x1 - x0) / n, bw = o.bw ?? Math.min(1.0, slot * 0.6), bx = i => x0 + i * slot + (slot - bw) / 2;
@@ -3231,7 +3585,7 @@ function createDeck(pres, opts = {}) {
   //   戻り値: { col(i) => { x, w, seg[j]=[上, 下] } }
   const mekko = (s, o) => {
     const cols = o.cols, pl = o.players, lw = o.labelW ?? 1.8;
-    const x0 = o.x0 ?? M + 0.1, x1 = o.x1 ?? W - M - lw, top = o.top ?? (o.share ? 2.95 : 2.75), base = o.base ?? 6.15, gap = o.gap ?? 0.05;
+    const x0 = o.x0 ?? M + 0.1, x1 = o.x1 ?? W - M - lw, top = o.top ?? (o.share ? 2.95 : 2.75), base = o.base ?? BOTTOM - 0.45, gap = o.gap ?? 0.05;
     const total = cols.reduce((a, c) => a + c.size, 0), uw = (x1 - x0 - gap * (cols.length - 1)) / total;
     const sf = o.sizeFmt || (v => fmtNum(v)), pf = o.pctFmt || (r => Math.round(r * 100) + "%");
     let x = x0; const out = [];
@@ -3441,7 +3795,7 @@ function createDeck(pres, opts = {}) {
     });
     items.push({ kind: "total", label: o.end.label, value: run, end: true, focusValue: o.end.focusValue });
     if (o.start.focusValue) items[0].focusValue = true;
-    const n = items.length, x0 = o.x0 ?? M + 0.1, x1 = o.x1 ?? W - M - 0.1, top = o.top ?? 2.85, base = o.base ?? 6.15, min = o.min ?? 0;
+    const n = items.length, x0 = o.x0 ?? M + 0.1, x1 = o.x1 ?? W - M - 0.1, top = o.top ?? 2.85, base = o.base ?? BOTTOM - 0.45, min = o.min ?? 0;
     const hiV = Math.max(...items.map(it => (it.kind === "total" ? it.value : Math.max(it.from, it.to)))), max = o.max ?? min + (hiV - min) * 1.06;
     const yOf = v => base - (v - min) / (max - min) * (base - top), slot = (x1 - x0) / n, bw = Math.min(0.9, slot * 0.62), bx = i => x0 + i * slot + (slot - bw) / 2;
     // 棒と値の文字の範囲（主役の値の位置を決める）
@@ -3492,7 +3846,7 @@ function createDeck(pres, opts = {}) {
   //   強調: 棒の focus（濃紺）だけ。線は soft の色で、最後の値だけ太字
   //   戻り値: { cx(i), barTop(i), lineY(i) }
   const comboChart = (s, o) => {
-    const n = o.cats.length, lw = o.labelW ?? 1.5, x0 = o.x0 ?? M + lw, x1 = o.x1 ?? W - M, top = o.top ?? 2.75, base = o.base ?? 6.2, lh = o.lineH ?? 1.0;
+    const n = o.cats.length, lw = o.labelW ?? 1.5, x0 = o.x0 ?? M + lw, x1 = o.x1 ?? W - M, top = o.top ?? 2.75, base = o.base ?? BOTTOM - 0.4, lh = o.lineH ?? 1.0;
     const slot = (x1 - x0) / n, cx = i => x0 + slot * (i + 0.5), bw = Math.min(0.7, slot * 0.56);
     const L = o.line, lmin = L.min ?? Math.min(...L.values), lmax = L.max ?? Math.max(...L.values), lTop = top + 0.32, lBot = top + lh;
     const lineY = i => lBot - (L.values[i] - lmin) / (lmax - lmin || 1) * (lBot - lTop), lf = L.fmt || (v => fmtNum(v));
@@ -3522,7 +3876,7 @@ function createDeck(pres, opts = {}) {
   //     ほかの行の名前は、主役の値の高さの分だけ上下へよける。呼ぶ側で値を空にして focusValue を手で置かない
   //   戻り値: { yOf(v), xa, xb }
   const slopeChart = (s, o) => {
-    const rows = o.rows, fmt = o.fmt || (v => fmtNum(v)), xa = o.xa ?? M + 3.9, xb = o.xb ?? W - M - 3.9, top = o.top ?? 2.85, bottom = o.bottom ?? 6.3;
+    const rows = o.rows, fmt = o.fmt || (v => fmtNum(v)), xa = o.xa ?? M + 3.9, xb = o.xb ?? W - M - 3.9, top = o.top ?? 2.85, bottom = o.bottom ?? BOTTOM - 0.3;
     const vals = rows.flatMap(r => [r.a, r.b]), min = o.min ?? Math.min(...vals), max = o.max ?? Math.max(...vals);
     const yOf = v => bottom - (v - min) / (max - min || 1) * (bottom - top);
     [[o.left, xa], [o.right, xb]].forEach(([t, x]) => T(s, t, { x: x - 1.2, y: top - 0.6, w: 2.4, h: 0.28, fontSize: FS.block, bold: true, color: C.ink, align: "center", valign: "bottom", wrap: false }));
@@ -4001,8 +4355,23 @@ function createDeck(pres, opts = {}) {
       console.warn(`[deck-parts] 線の絵（アイコン）の色が、資料の色の組と合っていない（アイコン: ${ICON_TINT ? ICON_TINT.ink + "・" + ICON_TINT.emph : "塗っていない"}、資料: ${C.ink}・${C.emph}）。作業フォルダで塗り直す: python3 <skills>/pptx-deck-design/scripts/tint_icons.py icons --ink ${C.ink} --emph ${C.emph} --accent ${C.accent}`);
     // 見る所の一覧：点検で、画像を見て最初に目が行った所と引き比べる（review-checklist）
     if (opts.focusList !== false) fs.writeFileSync(String(outPath).replace(/\.pptx$/i, "") + ".focus.md", "# 見る所の一覧\n\n画像だけを見て「最初に目が行く所」を答え、下の宣言と合うかを確かめる。合わないページは、強調を直す。\n\n| ページ | タイトル | 見る所（宣言） |\n|---|---|---|\n" + FOCUS.filter(f => f.title).map(f => `| ${f.page} | ${f.title} | ${f.focus === false ? "（列挙。見る所なし）" : f.focus ?? "（宣言なし）"} |`).join("\n") + "\n");
-    // 右上のミニ目次は、opts.miniNav: true のときだけ描く（章立て nav は、アジェンダとタイトルに使う。現在地はタイトルで分かる）
-    if (NAV && opts.miniNav === true) { const toks = miniTokens(); SLIDES.forEach(r => r.nav && miniAgenda(r.s, r.ch, toks)); }
+    // ナビゲーションは、テーマの nav か opts.miniNav: true のときだけ描く（章立て nav は、アジェンダとタイトルに使う。現在地はタイトルで分かる）
+    if (NAV && opts.miniNav !== false) {
+      const baseT = TH.nav || {}, baseStyle = NAV_STYLE, layouts = {};
+      inFooter = true;
+      try {
+        SLIDES.forEach(r => {
+          if (!r.nav) return;
+          const own = MASTER[r.type] && MASTER[r.type].nav;
+          if (own === false) return;
+          const style = (own && own.style) || baseStyle || (own ? "text" : null);
+          if (!style) return;
+          NAVT = { ...baseT, ...(own || {}) }; NAV_STYLE = style;
+          if (!layouts[r.type]) layouts[r.type] = navLayout();
+          drawNav(r.s, r.ch, layouts[r.type], r.type);
+        });
+      } finally { inFooter = false; NAVT = baseT; NAV_STYLE = baseStyle; }
+    }
     const JSZip = require("jszip"); // pptxgenjs の依存
     const zip = await JSZip.loadAsync(await pres.write({ outputType: "nodebuffer" }));
     const names = Object.keys(zip.files);
