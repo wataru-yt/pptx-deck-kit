@@ -1,0 +1,14 @@
+{
+  "name": "pptx-deck-kit",
+  "owner": {
+    "name": "pptx-deck-kit"
+  },
+  "description": "PowerPoint 資料を build.js（pptxgenjs）で作るための Claude Code プラグイン",
+  "plugins": [
+    {
+      "name": "pptx-deck-kit",
+      "source": "./plugins/pptx-deck-kit",
+      "description": "build.js（pptxgenjs）で PowerPoint 資料を作る部品・見せ方の決まり・点検の手順"
+    }
+  ]
+}

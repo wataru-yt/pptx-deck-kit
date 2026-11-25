@@ -1,0 +1,20 @@
+{
+  "name": "corporate",
+  "description": "紺の会社資料。題・表紙・章扉をメイリオ、下に紺の帯のフッター（中央にページ番号）、表紙は題の下に短い線と日付・所属",
+  "colors": {
+    "ink": "1B2430",
+    "emph": "1F3B70",
+    "dark": "16294F",
+    "strong": "E3E8F1",
+    "tint": "F3F5F8"
+  },
+  "font": {
+    "heading": "Meiryo"
+  },
+  "footer": {
+    "style": "band"
+  },
+  "cover": {
+    "style": "full"
+  }
+}

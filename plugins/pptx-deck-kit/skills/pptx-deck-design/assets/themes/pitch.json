@@ -1,0 +1,16 @@
+{
+  "name": "pitch",
+  "description": "ピッチ。強調の色を鮮やかな青紫にし、題を一段大きくする（28pt）。フッターはページ番号だけ、表紙は題と日付",
+  "colors": {
+    "emph": "5B2EFF"
+  },
+  "sizes": {
+    "title": 28
+  },
+  "footer": {
+    "style": "page"
+  },
+  "cover": {
+    "style": "simple"
+  }
+}
