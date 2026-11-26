@@ -1,6 +1,6 @@
 {
   "name": "pptx-deck-kit",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "build.js（pptxgenjs）で PowerPoint 資料を作る部品・見せ方の決まり・点検の手順。論旨から図を選び、見る所を1か所に絞った資料を作る",
   "author": {
     "name": "wataru"

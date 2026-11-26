@@ -21,6 +21,7 @@ const OUT = path.resolve(process.argv[2] || path.join(__dirname, "sample-diagram
 const CHECK = process.env.ECHO_CHECK === "1"; // 1 にすると続きのページの覆いと前面を外して描く（figure_diff.py で図が動いていないかを確かめる用）
 const pres = new pptxgen();
 const d = createDeck(pres, {
+  audience: "insider", // 聞き手の前提（決まり24）。見本は部品の使い方を見せるので、前提を共有済みとして描く
   title: "購買の仕組みの見直し",
   theme: "blue",
   footerText: "購買の仕組みの見直し",
@@ -29,6 +30,23 @@ const d = createDeck(pres, {
 
 d.cover({ title: "購買の仕組みの見直し", date: "2027年2月" });
 d.agendaPage();
+
+// コンセプト：新しい仕組みを初めて見せるページ。属性を並べず、価値を言う一文を中央に（決まり24・25）
+// 伝えたいこと：承認が当日に終わる／分かればOK：紙の稟議だと3日、新しい仕組みなら当日
+{
+  const s = d.base("見直しのコンセプト", null, { focus: "新しい仕組みの「当日」" });
+  d.concept(s, {
+    statement: "稟議の承認が、当日。",
+    key: "当日",
+    contrast: {
+      ticks: [{ at: 0, label: "申請" }, { at: 1 / 3, label: "1日" }, { at: 2 / 3, label: "2日" }, { at: 1, label: "3日" }],
+      rows: [
+        { name: "今の紙の稟議", to: 1 },
+        { name: "新しい仕組み", to: 0.12, big: "当日に承認", strong: true },
+      ],
+    },
+  });
+}
 
 // ===== 1. 同業の動き：時期の点の図 =====
 // 名前は点の真下、近いものは段をずらして細い引出線。自社だけ濃紺・太字（見る所）。会社と制度の変更は行を分ける

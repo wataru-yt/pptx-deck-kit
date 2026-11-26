@@ -26,6 +26,7 @@ const OUT = path.resolve(process.argv[2] || path.join(__dirname, "sample-map.ppt
 const CHECK = process.env.ECHO_CHECK === "1"; // 1 にすると続きのページを前面なしで描く（figure_diff.py で図が動いていないかを確かめる用）
 const pres = new pptxgen();
 const d = createDeck(pres, {
+  audience: "insider", // 聞き手の前提（決まり24）。見本は部品の使い方を見せるので、前提を共有済みとして描く
   title: "社内のAI活用の進め方",
   theme: "blue",
   footerText: "社内のAI活用の進め方",

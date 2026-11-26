@@ -688,6 +688,13 @@ function createDeck(pres, opts = {}) {
   const mark = key => { PAGE[key] = page; return page; };
   // 全ページを作った後に描く（ページ番号が確定してから描くもの）
   const later = fn => LATER.push(fn);
+  let AGENDA_DONE = false; // アジェンダのページを置いたか（finalize で確かめる。2026-11-25）
+  // 聞き手の前提（2026-11-25）："first-time"＝その事業・製品を初めて聞く（社外、投資家、新しい提案を初めて聞く役員など）／"insider"＝前提を共有済みの内部の人
+  //   初見なら、新しい物は「一言で何か」を中央に出すページ（concept）から入り、仕組み・比べる図は次のページから
+  const AUD = opts.audience;
+  if (AUD !== undefined && AUD !== "first-time" && AUD !== "insider") console.warn(`[deck-parts] audience は "first-time"（初見）か "insider"（前提を共有済み）にする（${AUD}）`);
+  let CONCEPT_DONE = false;
+  const needConcept = name => { if (AUD === "first-time" && !CONCEPT_DONE) warn(`初見の聞き手（audience: "first-time"）に、コンセプトのページより先に仕組みの図（${name}）を出している。先に「一言で何か」を中央に出すページ（concept）を置き、仕組みは次のページから見せる`); };
   // 参照の「P.n」を後で描く（離れた場所の対応を番号で読ませるためではなく、詳細の所在を示すため。10.13）
   const ref = (s, key, o) => { const { prefix = "", ...pos } = o; later(() => T(s, `${prefix}P.${PAGE[key] ?? "?"}`, { fontSize: FS.note, color: C.gray, align: "right", valign: "middle", wrap: false, h: 0.26, ...pos })); };
 
@@ -797,7 +804,8 @@ function createDeck(pres, opts = {}) {
   const base = (title, lead, o = {}) => {
     const navNow = NAV && chapterNow ? NAV.find(n => n.ch === chapterNow || (n.subs || []).includes(chapterNow)) : null;
     if (title == null && navNow && !ACTION) title = navNow.name; // 章立て（nav）を1か所に書けば、タイトルはそこから取る
-    if (title && navNow && !ACTION && title !== navNow.name) console.warn(`[deck-parts] P.${page + 1} タイトル（${title}）が、アジェンダの項目名（${navNow.name}）と違う。同じ言葉にする（同じ章の続きのページでも、タイトルは変えない）`);
+    // 題はそのページの項目名。章の名前と違うときは、題の上の小さな章名に章の名前を自動で出す
+    if (title && navNow && !ACTION && title !== navNow.name && o.section === undefined) o = { ...o, section: navNow.name };
     const s = newSlide("content");
     track(s, o);
     FOCUS.push({ page, title, focus: o.focus });
@@ -987,7 +995,7 @@ function createDeck(pres, opts = {}) {
     });
   };
   // 目次のページを作る（中身は finalize で描く）
-  const agenda = (cols, o = {}) => { const s = base(o.title || "目次", null, { nav: o.nav, key: o.key }); later(() => drawAgenda(s, cols, o)); return s; };
+  const agenda = (cols, o = {}) => { AGENDA_DONE = true; const s = base(o.title || "目次", null, { nav: o.nav, key: o.key }); later(() => drawAgenda(s, cols, o)); return s; };
 
   // アジェンダ：話す順の項目名だけを縦に並べる（createDeck の nav から作る）。主張や数字は書かない（それは要約の役目で、アジェンダとは別のページ）
   //   各ページのタイトルは、この項目名と同じ言葉になる（base がタイトルを nav から取る）。右上のミニ目次が、現在地を示す
@@ -995,6 +1003,7 @@ function createDeck(pres, opts = {}) {
   //   項目は 3〜7 個が目安。10 個を超えると警告（章をまとめる）
   const agendaPage = (o = {}) => {
     if (!NAV) throw new Error("agendaPage：createDeck の nav に章立てを書く（[{ name, ch }]）");
+    AGENDA_DONE = true;
     const keep = chapterNow; chapterNow = 0; // アジェンダのページ自体は、どの章にも入れない
     const s = base(o.title || "アジェンダ", null, { key: o.key, focus: false });
     chapterNow = keep;
@@ -1653,6 +1662,10 @@ function createDeck(pres, opts = {}) {
   //     focusValue: true＝主役の行（strong と同じ塗り）。その値を主役の値 36pt で棒の先に部品が描く（problem も付けると赤）。値の列はその幅だけ広げる
   //   o.y0（既定 2.6）, o.bh（棒の太さ 0.34）, o.pitch（0.44）, o.labelW（1.9）, o.fmt
   const hBars = (s, o) => {
+    { // 割合（シェア・構成比）の合計を、内訳と同じ棒に並べたら知らせる（2026-11-25）。予算の「合計と内訳」のような金額は対象外
+      const rws = (o.rows || []).filter(Boolean), isTot = r => /合計|全体|上位\s*\d|計$/.test(String(r.label || "")), parts = rws.filter(r => !isTot(r));
+      if (rws.some(isTot) && parts.length > 1 && parts.every(r => Math.abs(r.value) <= 100) && parts.reduce((a, r) => a + Math.abs(r.value), 0) <= 100.5) warn("割合の合計（上位の合計・全体）を、内訳と同じ棒に並べない。全体に占める割合は円（pieChart）で描き、合計は円の中に書く");
+    }
     chartPage();
     const rows = o.rows, vals = rows.filter(Boolean).map(r => r.value), fmt = o.fmt || (v => fmtNum(v, { plus: true }));
     if (rows.filter(r => r && r.focusValue).length > 1) warn("横棒：主役の値（focusValue）は1行だけにする");
@@ -1732,6 +1745,8 @@ function createDeck(pres, opts = {}) {
   // 要点と説明の2段：示唆・提言・申し送りのように、1項目に「言い切りの要点」と「その根拠の1文」があるときに使う（事実だけの列挙は bullets）
   //   items: [{ head, body, refKey? }]（refKey で右端に「根拠 P.n」）, o: { y0（2.45）, pitch（本文の下端までを等分、最大 1.1）, headFs（17）, bodyFs（15）, refPrefix }
   const points = (s, items, o = {}) => {
+    const curTitle = (FOCUS[FOCUS.length - 1] || {}).title || "";
+    if (/要約|サマリー/.test(curTitle)) warn("要約を points（見出しと補足の文の羅列）で描かない。summary を使う：決めてほしいこと（結論）を上に1つ、根拠を下に3つまで並べて線でつなぐ（2026-11-25）");
     const y0 = o.y0 ?? 2.45, pitch = o.pitch ?? Math.min(1.25, (BOTTOM - y0) / items.length), hf = o.headFs ?? 22, bf = o.bodyFs ?? FS.lead; // 見出し 22pt・根拠 20pt（案B）
     const w = BW - (items.some(it => it.refKey) ? 1.4 : 0);
     items.forEach((it, i) => {
@@ -1741,6 +1756,100 @@ function createDeck(pres, opts = {}) {
       if (it.body) { checkWrap(it.body, bf, w); T(s, it.body, { x: M, y: y + 0.48, w, h: 0.38 * Math.max(1, lineCount(it.body, bf, w)), fontSize: bf, color: C.soft, valign: "top", lineSpacingMultiple: 1.2 }); }
       if (it.refKey) ref(s, it.refKey, { x: W - M - 1.2, y: y + 0.05, w: 1.2, prefix: o.refPrefix ?? "根拠 " });
     });
+  };
+
+  // コンセプト（2026-11-25）：新しい事業・製品・サービスを初めて見せるページ。属性（誰に・何を・いくらで）を並べる場ではなく、価値を一目で見せる
+  //   作る前に「このページで一番伝えたいこと」と「見た人に分かってもらえば OK なこと」を1文ずつ決め、そこから逆算する（決まり25）
+  //   初見の聞き手には、仕組み（bizModel・processFlow・archDiagram）の前に、このページを置く
+  //   o.name（名前。上に小さく）, o.statement（一言のコンセプト。価値を言う。全角30字まで）, o.key（statement の中で強調の色にする語。1つ）
+  //   o.contrast（任意）：価値の差を、1本の物差しで比べる図。何と比べて、どれだけ違うかを一目で見せる
+  //     { ticks: [{ at, label }]（物差しの目盛り。at は 0〜1 の位置）, resultHead?（右端の列の見出し。例「鮮度」）, note?（物差しの説明。1行）,
+  //       rows: [{ name, to（0〜1。帯の長さ）, end?（帯の端の短い札）, result?（右端の値）, strong?（自社の行。1つだけ）, big?（自社の帯の横に大きく書く一語。例「当日に冷凍」） }] }
+  //   見る所は自社の行（strong）か statement。base の focus に書く
+  const concept = (s, o) => {
+    CONCEPT_DONE = true;
+    const st = String(o.statement || ""), key = o.key;
+    if (!st) warn("コンセプト：一言のコンセプト（statement）を書く。属性ではなく、価値（何が、何と比べてどう違うか）を言う");
+    if (st.length > 30) warn(`コンセプト：一言が長い（${st.length}字）。全角30字までに縮める。一言で言えないなら、何が価値なのかを決め直す`);
+    if (o.name || (o.contrast && (o.contrast.note || (o.contrast.rows || []).some(r => r.end)))) warn("コンセプト：説明の小さな文（name・note・end）は置かない（2026-11-25）。名前は題か行の名前で、物差しは目盛りで分かるようにする。描かずに進める");
+    if (o.points) warn("コンセプト：要点の列（points）は使わない（2026-11-25）。誰に・何を・いくらでのような属性を並べても、価値は伝わらない。価値の差は contrast で1本の物差しに並べて見せる");
+    const runs = key && st.includes(key) ? st.split(key).flatMap((t, i, a) => (i < a.length - 1 ? [{ text: t }, { text: key, options: { color: C.emph } }] : [{ text: t }])).filter(r => r.text) : [{ text: st }];
+    if (key && !st.includes(key)) warn(`コンセプト：強調する語（${key}）が一言の中に無い`);
+    const ct = o.contrast;
+    if (!ct) {
+      // 一文だけを中央に（「、」があれば、そこで改行して2行に）
+      const ny = 2.95;
+      // 説明の小さな文（名前など）は置かない（2026-11-25）。名前は題か一文の中で言う
+      const two = runs.flatMap(r => (String(r.text).includes("、") && st.length > 20 ? [{ text: r.text.split("、")[0] + "、", options: { ...(r.options || {}), breakLine: true } }, { text: r.text.split("、").slice(1).join("、"), options: r.options || {} }] : [r])).filter(r => r.text);
+      T(s, two.map(r => ({ text: r.text, options: { fontSize: 40, bold: true, color: C.ink, ...(r.options || {}) } })), { x: M, y: ny + 0.55, w: BW, h: 1.6, align: "center", valign: "middle", lineSpacingMultiple: 1.15 });
+      s.addShape(SH.LINE, { x: W / 2 - 1.2, y: ny + 2.4, w: 2.4, h: 0, line: { color: C.emph, width: 2 } });
+      return {};
+    }
+    // 上に名前と一文、下に価値の対比
+    // 一文はマジックワード（短い言い切り）。短ければ大きく出す
+    const SFS = st.length <= 16 ? 44 : 30;
+    T(s, runs.map(r => ({ text: r.text, options: { fontSize: SFS, bold: true, color: C.ink, ...(r.options || {}) } })), { x: M, y: 1.7, w: BW, h: SFS > 40 ? 1.0 : 0.75, align: "center", valign: "middle" });
+    const rows = ct.rows || [], n = rows.length, x0 = M + 2.9, x1 = W - M - 2.0, y0 = SFS > 40 ? 3.9 : 3.55, pitch = Math.min(0.95, 2.7 / Math.max(n, 1)), bh = 0.42, X = t => x0 + (x1 - x0) * t;
+    if (rows.filter(r => r.strong).length !== 1) warn("コンセプトの対比：自社の行（strong）を1つだけ決める");
+    if (n !== 2) warn(`コンセプトの対比：比べるのは、相手1つと自社の2行だけ（${n} 行）。コンセプトは一点突破。相手を増やすと、何が突き抜けているかが薄まる`);
+    if (rows.some(r => r.result !== undefined)) warn("コンセプトの対比：右端の結果の値（result）を足さない。2つ目の価値になる。伝える価値は1つだけ（物差しの差そのもの）");
+    (ct.ticks || []).forEach(tk => {
+      s.addShape(SH.LINE, { x: X(tk.at), y: y0 - 0.35, w: 0, h: pitch * n - 0.1, line: { color: C.line, width: 1 } });
+      T(s, tk.label, { x: X(tk.at) - 0.6, y: y0 - 0.72, w: 1.2, h: 0.3, fontSize: FS.note, color: C.soft, align: "center", valign: "middle", wrap: false });
+    });
+    if (ct.resultHead) T(s, ct.resultHead, { x: x1 + 0.35, y: y0 - 0.72, w: 1.6, h: 0.3, fontSize: FS.note, color: C.soft, valign: "middle", wrap: false });
+    rows.forEach((r, i) => {
+      const y = y0 + i * pitch, on = !!r.strong;
+      T(s, r.name, { x: M, y, w: x0 - M - 0.2, h: bh, fontSize: on ? FS.head : FS.body, bold: on, color: on ? C.ink : C.soft, align: "right", valign: "middle", wrap: false });
+      rect(s, x0, y, Math.max(0.12, X(r.to) - x0), bh, on ? C.emph : C.bar);
+      if (on && r.big) focusValue(s, r.big, { x: Math.max(X(r.to), x0 + 0.12) + 0.15, y: y - 0.1, w: 4, h: 0.62 });
+      if (r.result !== undefined) T(s, String(r.result), { x: x1 + 0.35, y: y - 0.1, w: 1.6, h: 0.62, fontSize: on ? 36 : 22, bold: true, color: on ? C.emph : C.gray, valign: "middle", wrap: false });
+    });
+    return { rowY: i => y0 + i * pitch, X };
+  };
+
+  // 要約（2026-11-25）：結論（決めてほしいこと）を上に1つ、根拠を下に 2〜4 個並べ、線でつなぐ（ピラミッド）。上から下へ読めば「何を決めるか → なぜか」が分かる
+  //   要約を points（見出しと補足の文の羅列）で描かない。根拠は「見出し1つ＋値1つ」で、補足の文を付けない
+  //   o.decision: { label?（"決めていただくこと"）, text（何を決めるか。全角20字まで）, value（決める額・数。主役の値 36pt で強調の色）, ask?（最後の1語。例 "を、今日決めていただきたい"）}
+  //   o.reasons: [{ head（根拠の言い切り。全角24字まで・2行まで）, value（根拠の数字。28pt 太字）, unit?（値の横の短い語。全角10字まで）, refKey? }]
+  //   o.link（つなぎの線の上の語。既定 "根拠"）, o.y0（2.35）
+  //   見る所は決めること（decision.value）。base の focus にその値を書く
+  const summary = (s, o) => {
+    const dc = o.decision || {}, rs = o.reasons || [];
+    if (!dc.text || dc.value === undefined) warn("要約：決めてほしいこと（decision の text と value）を書く。要約の主役は、何を決めるか");
+    if (rs.length < 2 || rs.length > 4) warn(`要約：根拠は 2〜4 個にする（${rs.length} 個）`);
+    const y0 = o.y0 ?? 2.35, bh = 1.15, VAL_FS = 28, HEAD_FS = FS.lead;
+    // 上：決めてほしいこと（強調の枠。この1か所だけ）
+    rect(s, M, y0, BW, bh, TINT, { color: C.emph, width: 2 });
+    T(s, dc.label || "決めていただくこと", { x: M + 0.3, y: y0 + 0.14, w: 6, h: 0.3, fontSize: FS.note, color: C.soft, valign: "middle", wrap: false });
+    const vt = String(dc.value ?? ""), vw = textW(vt, FOCUS_FS) + 0.15;
+    if (textW(dc.text || "", 24) > BW - vw - 0.9) warn(`要約：決めることの文が長い（${dc.text}）。全角20字までにする`);
+    T(s, dc.text || "", { x: M + 0.3, y: y0 + 0.48, w: BW - vw - 0.9, h: 0.55, fontSize: 24, bold: true, color: C.ink, valign: "middle", wrap: false });
+    focusValue(s, vt, { x: W - M - 0.3 - vw, y: y0 + 0.48, w: vw, h: 0.55, align: "right" });
+    // つなぎ：上の箱の下の真ん中から、根拠の列の真ん中へ、直角に折れる線
+    const n = Math.max(rs.length, 1), gap = 0.35, cw = (BW - gap * (n - 1)) / n, cx = i => M + i * (cw + gap) + cw / 2;
+    const ya = y0 + bh, yb = ya + 0.42, yc = yb + 0.3, ln = { color: C.faint, width: 1.5 };
+    s.addShape(SH.LINE, { x: W / 2, y: ya, w: 0, h: yb - ya, line: ln });
+    if (n > 1) s.addShape(SH.LINE, { x: cx(0), y: yb, w: cx(n - 1) - cx(0), h: 0, line: ln });
+    rs.forEach((r, i) => s.addShape(SH.LINE, { x: cx(i), y: yb, w: 0, h: yc - yb, line: ln }));
+    T(s, o.link ?? "根拠", { x: W / 2 + 0.12, y: ya + 0.06, w: 2, h: 0.28, fontSize: FS.note, color: C.soft, valign: "middle", wrap: false });
+    // 下：根拠の列（見出し → 値。補足の文は付けない）
+    rs.forEach((r, i) => {
+      const x = M + i * (cw + gap), y = yc + 0.2;
+      if (r.body) warn(`要約：根拠に補足の文（body）を付けない（${r.head}）。言いたいことは head に1文で書き、数字は value に`);
+      const nl = lineCount(r.head, HEAD_FS, cw);
+      if (nl > 2) warn(`要約：根拠の見出しが ${nl} 行になる（${r.head}）。全角24字までに縮める`);
+      checkWrap(r.head, HEAD_FS, cw);
+      T(s, r.head, { x, y, w: cw, h: 0.8, fontSize: HEAD_FS, bold: true, color: C.ink, valign: "top", lineSpacingMultiple: 1.15 });
+      const runs = [{ text: String(r.value ?? ""), options: { fontSize: VAL_FS, bold: true, color: C.ink, fontFace: FNUM } }];
+      if (r.unit) runs.push({ text: "　" + r.unit, options: { fontSize: FS.note, color: C.soft } });
+      if (r.unit && String(r.unit).length > 10) warn(`要約：値の横の語が長い（${r.unit}）。全角10字まで`);
+      T(s, runs, { x, y: y + 1.0, w: cw, h: 0.6, valign: "middle", wrap: false });
+      if (r.refKey) ref(s, r.refKey, { x, y: y + 1.68, w: cw, align: "left", prefix: "根拠 " });
+    });
+    const bottom = yc + 0.2 + 1.68 + 0.26;
+    if (bottom > BOTTOM + 0.05) warn(`要約の下端 ${bottom.toFixed(2)} が本文の下端を超える（o.y0 を上げる）`);
+    return { decision: { x: M, y: y0, w: BW, h: bh }, col: i => ({ x: M + i * (cw + gap), y: yc, w: cw, h: bottom - yc }) };
   };
 
   // ---- 詳細な表・多段の樹形図・プロジェクトのガント ----
@@ -2224,6 +2333,7 @@ function createDeck(pres, opts = {}) {
   //   o.only: [工程の番号]（その列だけを描く。echo の keep で、前面から指す列を元の濃さに戻すときに使う）
   //   戻り値: { col(i), head(i), time(i), cell(r, i) → {x, y, w, h}, cx(i), rowY, rowH, bottom, box(i)（= head(i)） } … 重ね技で前面から列・セルを指すときに使う
   const processFlow = (s, o) => {
+    needConcept("processFlow");
     if (o.lanes) warn("工程の流れ図：担当ごとの受け渡しは swimlane で描く（processFlow の lanes は廃止）");
     const st = o.steps, n = st.length, rows = o.rows || [], fs = o.fs ?? FS.body, unit = o.unit ?? "日";
     checkOneEm(st, "工程の流れ図");
@@ -2440,6 +2550,7 @@ function createDeck(pres, opts = {}) {
   //   o.tile（札の一辺 0.6）, o.only: [id]（そのノードだけを描く。echo の keep で、前面から指すノードを元の濃さに戻すときに使う）
   //   戻り値: { node(id) → {x, y, w, h, cx, cy, bottom}（札の矩形、bottom は名前の下端）, group(id) → {x, y, w, h}, cellX(c), cellY(r), note(s, 示唆) }
   const archDiagram = (s, o) => {
+    needConcept("archDiagram");
     if (o.layers) throw new Error("archDiagram: 層の帯（layers・kind）の形は 2026-11-08 に廃止。groups と nodes の c・r・icon で描く（sample-map.js）");
     const nodes = o.nodes || [], x0 = o.x ?? M, y0 = o.y ?? BODY, w = o.w ?? (W - M - x0), h = o.h ?? (BOTTOM - y0);
     const nc = o.cols ?? Math.ceil(Math.max(...nodes.map(n => n.c), ...(o.groups || []).map(g => g.c[1])) + 1);
@@ -3652,7 +3763,9 @@ function createDeck(pres, opts = {}) {
     const items = o.items, tot = items.reduce((a, b) => a + b.value, 0), r = o.r ?? 1.95, cx = o.cx ?? W / 2, cy = o.cy ?? 4.6, lw = o.labelW ?? 2.9;
     if (items.length > 5) warn(`円グラフの区分が${items.length}つある。5つまでにする（小さい区分は「その他」にまとめるか、hBars・treemap にする）`);
     if (items.some((it, i) => i && !it.other && it.value > items[i - 1].value)) warn("円グラフの区分が大きい順に並んでいない");
-    if (items.filter(it => it.strong).length > 1) warn("円グラフで濃紺にする区分は1つにする");
+    // 見る所の区分を strong で強調の色に（2026-11-25）。リードが合計（上位4社の69%など）を言うときは、その合計に入る区分をすべて strong にし、残りは灰
+    if (!items.some(it => it.strong)) warn("円グラフの見る所の区分が無い。リードが言う区分（合計を言うなら、その合計に入る区分すべて）に strong を付け、強調の色で塗る。ほかは灰（色を手で全部同じにしない）");
+    if (o.colors && items.some(it => it.strong)) warn("円グラフに colors と strong を両方渡している。見る所は strong に任せ、colors は渡さない");
     const pf = o.fmt || (it => Math.round(it.value / tot * 100) + "%");
     let a = 270; const mids = [];
     items.forEach((it, i) => {
@@ -3693,54 +3806,9 @@ function createDeck(pres, opts = {}) {
     return { cx, cy, r, mid: i => mids[i] };
   };
 
-  // ダンベル（図形）：2時点・2条件の差を項目ごとに並べる（施策の前後、自社と業界平均）。前は白抜きの点、後は塗りの点、間を太い灰の線でつなぐ
-  //   値は点の外側（左の点は左、右の点は右）、系列名は一番上の行の点の上に直接書く。縦の目盛りは置かない
-  //   o.rows: [{ label, a, b, strong? }]（並べ替えは呼ぶ側で。差の大きい順か b の大きい順）, o.names: [a の名前, b の名前]
-  //   o.min, o.max, o.y0（最初の行の中心 3.1）, o.pitch, o.labelW（2.4）, o.fmt, o.diff（右端に差 b−a の列。{ head, fmt }）
-  //   強調: strong の行があればその行だけ濃紺、無ければ b の点を全行で濃紺（主役の系列）
-  //   主役の値: 行に focusValue: true（strong と同じ強調）。差の列（o.diff）があれば差を、無ければ b の値を、主役の値 36pt で普通の位置に部品が描く（problem も付けると赤）
-  //     呼ぶ側で値を空にして focusValue を手で置かない。差の列は主役の値が入る幅に広げる
-  //   戻り値: { xOf(v), rowY(i) }
-  const dumbbell = (s, o) => {
-    chartPage();
-    const rows = o.rows, lw = o.labelW ?? 2.4, fmt = o.fmt || (v => fmtNum(v)), vw = 0.85, dfmt = o.diff ? (o.diff.fmt || (v => fmtNum(v, { plus: true }))) : null;
-    if (rows.filter(r => r.focusValue).length > 1) warn("ダンベル：主役の値（focusValue）は1行だけにする");
-    const fvR = rows.find(r => r.focusValue), dw = o.diff ? Math.max(1.3, fvR ? textW(dfmt(fvR.b - fvR.a), FOCUS_FS) + 0.1 : 0) : 0;
-    const x0 = M + lw + vw, x1 = W - M - dw - vw - (o.diff ? 0.2 : 0), y0 = o.y0 ?? 2.95;
-    const pitch = o.pitch ?? Math.min(0.56, (BOTTOM - 0.15 - y0) / Math.max(rows.length - 1, 1));
-    if (fvR && pitch < FOCUS_FS / 144 + FS.body / 144 + 0.04) warn(`ダンベル：行の間（${pitch.toFixed(2)}）が狭く、主役の値（36pt）が上下の行の値に重なる（行を減らすか pitch を広げる）`);
-    const vals = rows.flatMap(r => [r.a, r.b]), min = o.min ?? Math.min(...vals), max = o.max ?? Math.max(...vals);
-    const xOf = v => x0 + (v - min) / (max - min || 1) * (x1 - x0), anyStrong = rows.some(r => r.strong || r.focusValue), d = 0.17, rowY = i => y0 + i * pitch;
-    rows.forEach((r, i) => {
-      const y = rowY(i), hi = anyStrong ? !!(r.strong || r.focusValue) : false, xa = xOf(r.a), xb = xOf(r.b), lo = Math.min(xa, xb), hiX = Math.max(xa, xb), fv = !!r.focusValue;
-      T(s, r.label, { x: M, y: y - 0.15, w: lw - 0.1, h: 0.3, fontSize: hi ? FS.block : FS.body, bold: hi, color: hi ? C.ink : C.soft, valign: "middle", wrap: false });
-      if (hiX - lo > 0.01) s.addShape(SH.LINE, { x: lo, y, w: hiX - lo, h: 0, line: chLine(hi ? C.emph : C.bar, 3) });
-      chDot(s, xa, y, d, C.white, chLine(hi ? C.emph : C.faint, 1.5));
-      chDot(s, xb, y, d, anyStrong && !hi ? C.faint : C.ink);
-      const vA = { t: fmt(r.a), left: xa <= xb }, vB = { t: fmt(r.b), left: xb < xa };
-      [[vA, xa, false], [vB, xb, true]].forEach(([v, xx, isB]) => {
-        if (isB && fv && !o.diff) {
-          // 差の列が無いときは、b の値を主役の値に（点の外側）
-          const tw = textW(v.t, FOCUS_FS), bx = v.left ? xx - d / 2 - 0.06 - tw - 0.1 : xx + d / 2 + 0.06;
-          focusValue(s, v.t, { x: bx, y: y - 0.25, w: tw + 0.1, align: v.left ? "right" : "left" }, { problem: r.problem });
-          if (bx < M + lw || bx + tw + 0.1 > W - M + 0.05) warn(`ダンベル：主役の値（${v.t}）が図の幅に入らない（o.min・o.max を広げる）`);
-          const lt = vA.t, la = { x: vA.left ? xa - d / 2 - 0.06 - textW(lt, FS.body) : xa + d / 2 + 0.06, w: textW(lt, FS.body), y: y - 0.15, h: 0.3 };
-          if (boxHit({ x: bx, y: y - 0.25, w: tw + 0.1, h: 0.5 }, la)) warn(`ダンベル：主役の値（${v.t}）が、同じ行の${o.names[0]}の値に重なる`);
-          return;
-        }
-        T(s, v.t, { x: v.left ? xx - d / 2 - 0.06 - vw : xx + d / 2 + 0.06, y: y - 0.15, w: vw, h: 0.3, fontSize: isB && (hi || !anyStrong) ? FS.block : FS.body, bold: isB && (hi || !anyStrong), color: isB && (hi || !anyStrong) ? C.ink : C.soft, align: v.left ? "right" : "left", valign: "middle", wrap: false });
-      });
-      if (o.diff && fv) focusValue(s, dfmt(r.b - r.a), { x: W - M - dw, y: y - 0.25, w: dw, align: "right" }, { problem: r.problem });
-      else if (o.diff) T(s, dfmt(r.b - r.a), { x: W - M - dw, y: y - 0.15, w: dw, h: 0.3, fontSize: hi ? FS.block : FS.body, bold: true, color: hi || !anyStrong ? C.ink : C.soft, align: "right", valign: "middle", wrap: false });
-    });
-    // 系列名：一番上の行の点の上（左の点の名前は右揃え、右の点の名前は左揃えで、互いに外へ）
-    const r0 = rows[0], xa0 = xOf(r0.a), xb0 = xOf(r0.b), aLeft = xa0 <= xb0;
-    [[o.names[0], xa0, aLeft], [o.names[1], xb0, !aLeft]].forEach(([nm, xx, left]) => T(s, nm, { x: left ? xx + 0.1 - 3 : xx - 0.1, y: rowY(0) - 0.5, w: 3, h: 0.26, fontSize: FS.note, color: C.soft, align: left ? "right" : "left", valign: "bottom", wrap: false }));
-    if (o.diff) T(s, o.diff.head || "差", { x: W - M - dw - 0.5, y: rowY(0) - 0.5, w: dw + 0.5, h: 0.26, fontSize: FS.note, color: C.gray, align: "right", valign: "bottom", wrap: false });
-    const bottom = rowY(rows.length - 1) + 0.15;
-    if (bottom > BOTTOM + 0.05) warn(`ダンベルの下端 ${bottom.toFixed(2)} が本文の下端を超える`);
-    return { xOf, rowY };
-  };
+  // ダンベル（2時点・2条件の差を、2つの点と線で示す図）は、2026-11-25 に部品から削除した（何を言いたいのかが読み取りにくいため）。
+  //   2つの条件を比べるときは、対の棒（colBars の series）か、横棒（hBars）で描く
+  const dumbbell = () => { throw new Error("dumbbell は削除した（2026-11-25）。2つの条件の比較は、対の棒（colBars の series）か横棒（hBars）で描く"); };
 
   // ブレット（図形）：KPI の実績と目標を項目ごとに。灰の帯（段階）の上に実績の棒、目標は縦の太線。右に実績・目標・達成率の列
   //   単位の違う KPI を1枚に並べられる（各行は自分の目盛り：0〜max(実績, 目標, 帯)×1.1）。ゲージやメーターの代わりに使う
@@ -4176,6 +4244,7 @@ function createDeck(pres, opts = {}) {
   //   o.x, o.w, o.y0（BODY＋0.1）, o.bottom（BOTTOM−0.3。下に印の凡例を1行置く）, o.nodeW（2.5）, o.nodeH（1.1）, o.labelW（2.0）
   //   戻り値: { node(id) → {x, y, w, h, cx, cy}, flow(i) → { mx, my, p1, p2 } }
   const bizModel = (s, o) => {
+    needConcept("bizModel");
     const nc = o.cols ?? 3, nr = o.rows ?? 2, x0 = o.x ?? M, wAll = o.w ?? BW, y0 = o.y0 ?? BODY + 0.1, bottom = o.bottom ?? BOTTOM - 0.3;
     const nw = o.nodeW ?? 2.5, nh = o.nodeH ?? 1.1, lw0 = o.labelW ?? 2.0;
     const cxOf = c => x0 + nw / 2 + (nc > 1 ? c * (wAll - nw) / (nc - 1) : (wAll - nw) / 2);
@@ -4238,8 +4307,8 @@ function createDeck(pres, opts = {}) {
       if (nd.sub) warnSub("ビジネスモデル図の主体");
       T(s, [{ text: nd.name, options: { fontSize: FS.head, bold: true, color: C.ink, breakLine: !!nd.sub } }, ...(nd.sub ? [{ text: nd.sub, options: { fontSize: FS.note, color: C.soft } }] : [])], { x: tx, y: nd.y, w: tw, h: nd.h, valign: "middle", lineSpacingMultiple: 1.15 });
     });
-    // 印の意味（図の左下に1行）
-    if (!only) {
+    // 印の意味（図の左下に1行）。既定では出さない。矢印の名前で読めるようにする。出すなら o.legend: true
+    if (!only && o.legend === true) {
       const ly = bottom + 0.12; let lx = x0;
       [["money", "対価"], ["goods", "物・サービス"], ["info", "情報・権利"]].forEach(([k, t]) => {
         if (!o.flows.some(f => (f.kind || "goods") === k)) return;
@@ -4346,6 +4415,10 @@ function createDeck(pres, opts = {}) {
 
   const finalize = async outPath => {
     LATER.forEach(fn => fn());
+    // 聞き手の前提：宣言していなければ知らせる（2026-11-25）
+    if (AUD === undefined) console.warn(`[deck-parts] 聞き手の前提（createDeck の audience）を決めていない。"first-time"（その事業・製品を初めて聞く）か "insider"（前提を共有済み）を書く。初見なら、新しい物は一言のコンセプト（concept）から入る`);
+    // アジェンダ：8 枚以上の資料は、表紙（と要約）の後にアジェンダを置く（2026-11-25）
+    if (!AGENDA_DONE && page >= 8) console.warn(`[deck-parts] アジェンダのページが無い（${page} 枚）。8 枚以上の資料は、表紙（と要約）の後にアジェンダを置く：createDeck の nav に章立てを書き、agendaPage() を呼ぶ。各ページのタイトルは章の項目名になる。「15 枚」のような枚数の指定は、表紙とアジェンダを数えない本編の数として扱い、アジェンダを省く理由にしない`);
     // グラフのページ：見る所の値（FOCUS_FS・強調の色）が1つだけあるか
     FOCUS.forEach(f => { if (!CHARTP[f.page] || f.focus === false) return; const n = BIGF[f.page] || 0; if (!n) console.warn(`[deck-parts] P.${f.page} グラフの見る所の値が無い。見る所の値を ${FOCUS_FS}pt・強調の色で、見る所の隣に書く（focusValue か、部品の focusValue の口）`); else if (n > 1) console.warn(`[deck-parts] P.${f.page} 見る所の大きな値が ${n} つある。強調の色の大きな値は1つにする`); });
     // 外部の製品・会社：図の中に名前があるのに、そのページにアイコンが無ければ知らせる
@@ -4397,7 +4470,7 @@ function createDeck(pres, opts = {}) {
     // 文字・線
     T, hline, segLine, rect, link, leadBreak, textW, lineCount, focusValue, FOCUS_FS, FOCUS_LW,
     // 骨格
-    base, cover, chapter, divider, agenda, agendaPage, source, bullets, points,
+    base, cover, chapter, divider, agenda, agendaPage, source, bullets, points, summary, concept,
     // 表・比較
     blockTable, compareTable, raciTable: formGuard("raciTable", raciTable), metricBars, roadmap: formGuard("roadmap", roadmap), harvey, journeyMap: formGuard("journeyMap", journeyMap),
     // 因果

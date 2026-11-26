@@ -14,7 +14,7 @@
 // - 題はアジェンダの項目名だけ（createDeck の nav から取る。base の題は null）。主張はリードの1文に書き、見る所の名前か値を名指しする
 // - 全ページで見る所（focus）を1つ宣言する。強調の色は見る所の棒・区画・点・線だけに付け、他はすべて灰（比べる相手は濃い灰 C.faint、残りは薄い灰）
 // - 見る所の値は focusValue（36pt・太字・強調の色、問題なら赤）で1つだけ書く。置く所は、その要素の普通の値の位置（棒の上・点の上・区画の中・行の値の列）。離れた所に置かない
-//   主役の値を描く口のある部品（colBars の focus、hBars・dumbbell・slopeChart・bridge・waterfall の要素の focusValue、lineChart・heatmap の focusValue、tamSamSom の strong）は、
+//   主役の値を描く口のある部品（colBars の focus、hBars・slopeChart・bridge・waterfall の要素の focusValue、lineChart・heatmap の focusValue、tamSamSom の strong）は、
 //   部品が 36pt の値を普通の位置に描き、隣の棒・値との重なりもよけるか警告する。手で focusValue を置くのは、口の無い部品（円・積み上げ・メッコなど）だけ
 //   手で置くときは、区画の中（強調の色の塗りの上）は onFill で白にし、部品も同じ値を描くなら、書式の関数でその値だけ空の文字にする
 // - 本文の領域（y 2.2〜6.6）を使い切る。部品の描く範囲（top・bottom・base・area・y0）は、既定のまま使う
@@ -27,6 +27,7 @@ const { createDeck } = require("./deck-parts");
 const OUT = path.resolve(process.argv[2] || path.join(__dirname, "sample-charts.pptx"));
 const pres = new pptxgen();
 const d = createDeck(pres, {
+  audience: "insider", // 聞き手の前提（決まり24）。見本は部品の使い方を見せるので、前提を共有済みとして描く
   title: "王道のグラフの見本",
   theme: "blue",
   footerText: "王道のグラフの見本",
@@ -45,6 +46,7 @@ const focusSeg = (s, x, y, w, h) => d.rect(s, x, y, w, h, C.emph, { color: C.whi
 const dot = (s, cx, cy, dd, color) => s.addShape(pres.shapes.OVAL, { x: cx - dd / 2, y: cy - dd / 2, w: dd, h: dd, fill: { color }, line: { color: C.white, width: 1 } });
 
 d.cover({ title: "王道のグラフの見本", date: "2026年11月" });
+d.agendaPage();
 
 // ===== 1. 構成比 =====
 d.setChapter(1);
@@ -235,22 +237,6 @@ d.setChapter(2);
     cats: ["空調", "冷蔵", "調理", "照明", "掃除", "洗濯"],
     series: [{ name: "前年比", color: G2, values: [12.4, 8.1, -0.9, -2.5, -4.2, -6.8] }],
     focus: [[0, 0]], bottom: COL_BOTTOM, fmt: v => d.fmtNum(v, { plus: true, digits: 1 }),
-  });
-}
-
-// ダンベル：2時点の差を項目ごとに。前は白抜き、後は塗り、右端に差。見る所の行は focusValue（部品が差の列に 36pt で描く）
-{
-  const s = d.base(null, "駅前店の待ち時間は、予約制の導入で24分短くなった。", { focus: "駅前店の行と−24分" });
-  d.figHead(s, "店舗別の平均の待ち時間（分、導入前＝2026年3月、導入後＝2026年9月）");
-  d.dumbbell(s, {
-    y0: 2.95, // 既定（2.85）だと系列名が figHead の行に重なる
-    names: ["導入前", "導入後"], min: 0, max: 45, fmt: v => `${v}分`,
-    diff: { head: "差", fmt: v => d.fmtNum(v, { plus: true, unit: "分" }) },
-    // a＝導入前（白抜き）、b＝導入後（塗り）
-    rows: [
-      { label: "駅前店", a: 38, b: 14, focusValue: true }, { label: "本店", a: 33, b: 12 }, { label: "港南店", a: 29, b: 11 }, { label: "空港店", a: 28, b: 13 },
-      { label: "北口店", a: 22, b: 9 }, { label: "大学前店", a: 21, b: 10 }, { label: "西口店", a: 16, b: 8 }, { label: "山手店", a: 12, b: 7 },
-    ],
   });
 }
 

@@ -23,6 +23,7 @@ const { createDeck } = require("./deck-parts");
 const OUT = path.resolve(process.argv[2] || path.join(__dirname, "sample-showcase.pptx"));
 const pres = new pptxgen();
 const d = createDeck(pres, {
+  audience: "insider", // 聞き手の前提（決まり24）。見本は部品の使い方を見せるので、前提を共有済みとして描く
   title: "社内問い合わせAIの全社展開計画",
   theme: "blue",
   footerText: "社内問い合わせAIの全社展開計画",
