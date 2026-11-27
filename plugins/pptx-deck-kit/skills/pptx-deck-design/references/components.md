@@ -368,7 +368,7 @@ d.summary(s, {
 
 ## 骨格 — `base` / `cover` / `chapter` / `divider` / `agenda`
 
-- `base(title, lead, o)`: 全ページの土台。タイトルは、いまどの話かの項目名だけ（`null` にすると、いまの章の項目名になる）、リードは結論1つを言い切る（2行・70字まで。「だ」「である」で結ばず、名詞は体言止め。タイトルで分かることは書かない。決まりは SKILL.md の11）。`o.ask` に、聴講者が持ちうる疑問と答えの場所を書く（`"どの工程？ → リードの「購買部の確認」"`。文字か配列。画面には出ない。`series` のページは `ask`。リードがあって空だと警告）。`finalize` は、見る所の一覧 `<資料名>.focus.md` と、リードの一覧 `<資料名>.leads.md` を書き出す（`createDeck` の `focusList: false`・`leadList: false` で止める）。`o.focus` に見る所を1つ書く（列挙だけのページは `false`）
+- `base(title, lead, o)`: 全ページの土台。タイトルは、いまどの話かの項目名だけ（普通に使う言葉で、何のことか分かる名前。SKILL.md の7。`null` にすると、いまの章の項目名になる）、リードは結論1つを言い切る（2行・70字まで。「だ」「である」で結ばず、名詞は体言止め。タイトルで分かることは書かない。決まりは SKILL.md の11）。`o.ask` に、聴講者が持ちうる疑問と答えの場所を書く（`"どの工程？ → リードの「購買部の確認」"`。文字か配列。画面には出ない。`series` のページは `ask`。リードがあって空だと警告）。`finalize` は、見る所の一覧 `<資料名>.focus.md` と、題とリードの一覧 `<資料名>.leads.md` を書き出す（`createDeck` の `focusList: false`・`leadList: false` で止める）。`o.focus` に見る所を1つ書く（列挙だけのページは `false`）
 - 色: `createDeck` の `theme` で決める。名前（`blue`・`teal`・`green`・`orange`・`purple`・`slate`・`navy`）、強調の色だけ（`{ emph: "2F6BFF" }`）、全部の指定、のどれでも渡せる（`references/tokens.md` の「色の組を差し替える」）。決めないと警告が出る
 - 題の形: 項目名の題＋リードだけ。報告書でも、題に結論の1文を書かない（`titleStyle: "action"` は、指定すると警告が出る）
 - フッター: `createDeck` の `footer`。`"page"` は、細い線の下の左に `footerText`（資料名）、右にページ番号（`footerText` を省くとページ番号だけ）。表紙と区切りのページは、ページ番号だけ。`"band"` は下に濃紺の帯（左に `copyright`、中央にページ番号、右に `logo`）

@@ -27,7 +27,7 @@ const d = createDeck(pres, {
   title: "社内問い合わせAIの全社展開計画",
   theme: "blue",
   footerText: "社内問い合わせAIの全社展開計画",
-  nav: [{ name: "減らない原因", ch: 1 }, { name: "4案の比較", ch: 2 }, { name: "進め方", ch: 3 }, { name: "展開の計画", ch: 4 }],
+  nav: [{ name: "問い合わせが減らない原因", ch: 1 }, { name: "対策案の比較", ch: 2 }, { name: "進め方", ch: 3 }, { name: "全社展開の計画", ch: 4 }],
 });
 const { M, T, FS, C } = d;
 

@@ -32,8 +32,8 @@ const d = createDeck(pres, {
   footerText: "社内のAI活用の進め方",
   nav: [
     { name: "製品の位置づけ", ch: 1 },
-    { name: "利用の定着", ch: 2 },
-    { name: "基盤の構成", ch: 3 },
+    { name: "利用の定着状況", ch: 2 },
+    { name: "AI基盤の構成", ch: 3 },
   ],
 });
 

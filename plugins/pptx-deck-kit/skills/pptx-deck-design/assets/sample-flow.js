@@ -33,10 +33,10 @@ const d = createDeck(pres, {
   footerText: "購買の見直し",
   nav: [
     { name: "業務の流れ", ch: 1 },
-    { name: "受け渡し", ch: 2 },
+    { name: "担当間の受け渡し", ch: 2 },
     { name: "見積りの取り直し", ch: 3 },
-    { name: "体制", ch: 4 },
-    { name: "役割の分担", ch: 5 },
+    { name: "推進体制", ch: 4 },
+    { name: "役割分担", ch: 5 },
   ],
 });
 
