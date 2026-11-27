@@ -160,7 +160,7 @@ description: 資料を pptx（build.js＝pptxgenjs）で作る・直すときに
   "sizes": { "body": 19, "lead": 22, "focus": 36 },
   "footer": { "style": "band", "copyright": "© Example Inc.", "confidential": "社外秘", "logo": "logo.png" },
   "cover": { "style": "full", "affil": "株式会社エグザンプル 経営企画部", "logo": "logo.png", "logoPos": "top-left" },
-  "layout": { "titleY": 0.66, "leadY": 1.32 },
+  "layout": { "titleY": 0.46, "leadY": 1.12 },
   "icons": "my-icons"
 }
 ```

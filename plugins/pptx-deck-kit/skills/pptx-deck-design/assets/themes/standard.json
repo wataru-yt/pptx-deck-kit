@@ -11,5 +11,5 @@
   "sizes": { "title": 26, "lead": 22, "large": 20, "name": 20, "body": 19, "note": 19, "focus": 36 },
   "footer": { "style": "page", "pageNumber": true },
   "cover": { "style": "auto" },
-  "layout": { "sectionY": 0.38, "titleY": 0.66, "leadY": 1.32 }
+  "layout": { "sectionY": 0.14, "titleY": 0.46, "leadY": 1.12 }
 }

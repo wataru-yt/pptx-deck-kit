@@ -87,7 +87,8 @@ const PAD = { x: 0.18, y: 0.12 };
 const W = 13.333, H = 7.5, BODY = 2.2;
 let M = 0.6, BW = W - 2 * M; // 左右の余白と本文の幅。テーマの layout.margin で替わる（広げるだけ。左右の飾りがあるテンプレート向け）
 let BOTTOM = 6.6, FH = 0.305; // 本文の下端とフッターの帯の高さ。テーマの footer.height・layout.bodyBottom で替わる（下端は上げるだけ）
-const Y = { section: 0.38, title: 0.66, lead: 1.32, body: BODY, bottom: BOTTOM, source: H - 0.66, footer: H - FH };
+// 題とリードは、2行のリードの下端と本文の上端（図の見出し）の間が空く高さに置く。本文の上端はページごとに動かさない
+const Y = { section: 0.14, title: 0.46, lead: 1.12, body: BODY, bottom: BOTTOM, source: H - 0.66, footer: H - FH };
 
 // 書体。テーマの font で替わる：face＝本文（F）、heading＝題・表紙・章扉（FHEAD。既定は本文と同じ）、number＝番号丸などの数字（FNUM）
 //   既定は BIZ UDPゴシック（Windows 10 以降に標準。Mac は Microsoft 365 のクラウドフォントか Google Fonts）。数字の書体も本文にそろえる
@@ -109,6 +110,7 @@ const tails = (t, pt, w) => { const cap = w * 72 / pt; return String(t).split("\
 const hasOrphan = (t, pt, w) => !!t && tails(t, pt, w).some(r => r > 0 && r <= 2.2);
 // 1行の高さ（PowerPoint は文字サイズ×1.2×行間）
 const lineH = (pt, ls = 1.25) => pt * 1.2 * ls / 72;
+const LEAD_GAP = 0.2; // リードの文字の箱の下端と、本文の領域（y BODY）の間に空ける最小
 
 // リードの改行：1行に収まれば1行、2行なら「。」で改行、1文が収まらないときだけ「、」の直後で折る
 const leadBreak = (text, fs = LEAD_FS, width = BW) => {
@@ -203,7 +205,7 @@ const THEME_KEYS = new Set(["$schema", "name", "description", "extends", ...THEM
 const SIZE_MIN = { title: 20, lead: 18, large: 14, name: 14, body: 14, note: 14, focus: 24 };
 const SIZE_MAX = { title: 32, lead: 26, large: 24, name: 24, body: 22, note: 22, focus: 48 }; // 超えても使うが、部品の箱からあふれやすいので知らせる
 // 題・リード・章名の縦の位置と、本文の下端（インチ）。本文の上端（y 2.2）より上と、下端より下だけで動かせる
-const LAYOUT_RANGE = { sectionY: [0.05, 0.5], titleY: [0.12, 0.85], leadY: [1.15, 1.45], bodyBottom: [5.6, 6.6], margin: [0.6, 1.0] };
+const LAYOUT_RANGE = { sectionY: [0.05, 0.5], titleY: [0.12, 0.85], leadY: [1.05, 1.45], bodyBottom: [5.6, 6.6], margin: [0.6, 1.0] };
 const FOOTER_KEYS = new Set(["style", "pageNumber", "text", "copyright", "logo", "confidential", "bandColor", "height", "color"]);
 const NAV_KEYS = new Set(["style", "align", "x", "y", "w", "h", "size", "color", "activeColor", "fill", "activeFill", "numbers"]);
 // 飾りの層（master）：ページの種類ごとに、背景・飾り（objects）・文字の置き場所（boxes）を持つ
@@ -878,9 +880,8 @@ function createDeck(pres, opts = {}) {
     if (o.sub) HEAD_TEXT.add(String(o.sub));
     // 文字の置き場所（テーマの master.content.boxes で動かせる）
     const tb = boxOf("content", "title", { x: M, y: Y.title, w: BW, h: 0.6, size: FS.title, color: C.ink, bold: true, font: FHEAD });
-    const lb = boxOf("content", "lead", { x: M, y: Y.lead - 0.04, w: BW, h: 0.8, size: LEAD_FS, color: C.ink, bold: true });
+    const lb = boxOf("content", "lead", { x: M, y: Y.lead - 0.04, w: BW, h: 0.9, size: LEAD_FS, color: C.ink, bold: true });
     if (tb.y + Math.min(tb.h, 0.6) > lb.y + 0.25 && title && lead) warnTheme("content.overlap", "題の置き場所が、リードと重なる。boxes.title と boxes.lead の y を離す");
-    if (lb.y + lb.h > BODY + 0.12) warnTheme("content.leadLow", `リードの置き場所の下端が、本文の領域（y ${BODY}）に入る`);
     const boxText = (b, color) => ({ x: b.x, y: b.y, w: b.w, h: b.h, fontSize: b.size, color: color ?? b.color, ...(b.bold ? { bold: true } : {}), ...(b.align ? { align: b.align } : {}), ...(b.valign ? { valign: b.valign } : {}), ...(b.font && b.font !== F ? { fontFace: b.font } : {}) });
     if (lead) { HEAD_TEXT.add(leadBreak(lead, lb.size, lb.w)); checkLead(title, lead); }
     if (lead && (String(lead).match(/。/g) || []).length >= 3) warn("リードが3文以上ある。主張は1つにし、残りは同じ図を敷いた次のページに分ける（series）");
@@ -899,6 +900,9 @@ function createDeck(pres, opts = {}) {
       const n = lineCount(t, lb.size, lb.w * 0.99);
       if (n > 2) warn(`リードが${n}行になる（2行まで）。図を動かさず文を縮める（2.1）`);
       checkReadable("content", "lead", lb, lb.color, t.split("\n")[0], lb.size);
+      // 置き場所の高さではなく、実際の行数の下端で確かめる（2行のリードが図の見出しに寄る）
+      const th = n * lineH(lb.size, 1.2), low = lb.valign === "bottom" ? lb.y + lb.h : lb.valign === "middle" ? lb.y + (lb.h + th) / 2 : lb.y + th;
+      if (low > BODY - LEAD_GAP + 0.005) warnTheme("content.leadLow", `P.${page} のリード（${n}行）の下端 y ${low.toFixed(2)} が、本文の領域（y ${BODY}。図の見出しを含む）に近すぎる。layout.leadY・boxes.lead の y を上げるか、sizes.lead を下げる（このページだけなら、リードを1行に縮める）`);
       T(s, t, { ...boxText(lb), lineSpacingMultiple: 1.2 });
     }
     inChrome = false;
@@ -1091,7 +1095,7 @@ function createDeck(pres, opts = {}) {
     let size = NAVT.size ?? (NAV_STYLE === "text" ? Math.min(FS.note, FOOT_FS) : 14);
     if (size < 11 || size > 18) { themeWarn("nav", `nav.size は 11〜18 にする（${size}）`); size = Math.min(18, Math.max(11, size)); }
     const bar = NAV_STYLE === "bar", tabs = NAV_STYLE === "tabs";
-    const h = NAVT.h ?? (bar ? 0.42 : tabs ? 0.34 : 0.28), y = NAVT.y ?? (bar ? 0 : Y.section);
+    const h = NAVT.h ?? (bar || tabs ? 0.34 : 0.28), y = NAVT.y ?? (bar ? 0 : Y.section);
     const items = [];
     NAV.forEach((nv, i) => {
       items.push({ t: NAVT.numbers ? `${i + 1}　${nv.name}` : nv.name, on: a => a === nv.ch, near: a => (nv.subs || []).includes(a), gap: i ? (tabs ? 0.06 : 0.3) : 0 });
