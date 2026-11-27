@@ -815,7 +815,18 @@ function createDeck(pres, opts = {}) {
     const data = Array.isArray(a[0]) ? a[0].flatMap(x => (x && x.data) || []) : a[1] || [];
     return data.flatMap(d => [d.name, ...(d.labels || []).flat(), ...(d.values || []).flatMap(v => (Math.abs(v) <= 1 ? [v, Math.round(v * 1000) / 10] : [v]))]).map(v => String(v ?? ""));
   };
-  const LEADS = []; // { page, title, lead, ask, fig }。一覧（.leads.md）と、数字の照合に使う
+  // 主役の大きさ（BIG_PT 以上）で描いた文字：リードの数値が、図の中で大きく出ているかを見る
+  const BIG_PT = 24;
+  const bigTexts = (method, a) => {
+    const out = [], walk = (t, size) => {
+      if (Array.isArray(t)) t.forEach(r => (r && typeof r === "object" ? walk(r.text ?? "", (r.options && r.options.fontSize) ?? size) : walk(r, size)));
+      else if (size >= BIG_PT) out.push(String(t ?? ""));
+    };
+    if (method === "addText") walk(a[0], (a[1] && a[1].fontSize) ?? 18);
+    if (method === "addTable") (a[0] || []).forEach(row => (row || []).forEach(c => { const o = c && typeof c === "object" && !Array.isArray(c); walk(o ? c.text ?? "" : c, (o && c.options && c.options.fontSize) ?? (a[1] && a[1].fontSize) ?? 18); }));
+    return out;
+  };
+  const LEADS = []; // { page, title, lead, ask, fig, big }。一覧（.leads.md）と、数字の照合に使う
   // 図の中の文・メッセージボックス・表の文：リードと同じ一覧で、縮められる言い回しを知らせる（同じ文は1回だけ。題とリードは checkLead が見る）
   const HEAD_TEXT = new Set(), WORD_SEEN = new Set();
   wordHook = text => {
@@ -857,10 +868,10 @@ function createDeck(pres, opts = {}) {
     const s = newSlide("content");
     track(s, o);
     FOCUS.push({ page, title, focus: o.focus });
-    const fig = [];
-    LEADS.push({ page, title, lead: lead ? String(lead) : "", ask: [].concat(o.ask || []).join(" ／ "), fig });
+    const fig = [], big = [];
+    LEADS.push({ page, title, lead: lead ? String(lead) : "", ask: [].concat(o.ask || []).join(" ／ "), fig, big });
     // 題・リード・フッター・ナビを除いた、図の文字を控える
-    ["addText", "addTable", "addChart"].forEach(m => { const f = s[m].bind(s); s[m] = (...a) => { if (!inChrome && !inFooter) fig.push(...figTexts(m, a)); return f(...a); }; });
+    ["addText", "addTable", "addChart"].forEach(m => { const f = s[m].bind(s); s[m] = (...a) => { if (!inChrome && !inFooter) { fig.push(...figTexts(m, a)); big.push(...bigTexts(m, a)); } return f(...a); }; });
     if (title && o.focus === undefined) warn("見る所の宣言がない（base の o.focus に、持ち帰る1つ（最初に目が行くべき要素）を書く。false は、リードが主張を言わないページだけ）");
     if (o.focus === false && lead && !/付録|参考|一覧|目次|アジェンダ/.test(String(title || ""))) warn("主張を言うリードがあるのに、見る所がない（focus: false）。持ち帰る1つ（語か数値）を決めて、それがいちばん大きく見える形にする");
     if (title) HEAD_TEXT.add(String(title));
@@ -1586,10 +1597,11 @@ function createDeck(pres, opts = {}) {
     const rec = SLIDES[SLIDES.length - 1], nth = rec.charts++;
     const natural = (o.w - 0.6) / (o.labels.length * ((o.grouping === "clustered" ? series.length : 1) + (o.gapPct ?? 60) / 100));
     if (natural > 1.3) warn(`棒グラフ（ネイティブ）：棒が太くなる（およそ ${natural.toFixed(1)}）。w を狭める（区分が少ないグラフは、幅いっぱいにしない）`);
+    if (series.length > 1 && o.legend !== false) warn("棒グラフ（ネイティブ）：凡例の箱が棒から離れる。系列があるときは colBars・stackBars で描き、系列の名前を図の中に直接書く");
     s.addChart(pres.charts.BAR, series.map(sr => ({ name: sr.name, labels: o.labels, values: sr.values })), {
       x: o.x, y: o.y, w: o.w, h: o.h, barDir: "col", barGrouping: o.grouping || "stacked", barGapWidthPct: o.gapPct ?? 60,
       chartColors: series.map(sr => sr.color),
-      showLegend: o.legend !== false, legendPos: "b", legendFontSize: FS.note, legendFontFace: F, legendColor: C.soft,
+      showLegend: series.length > 1 && o.legend !== false, legendPos: "b", legendFontSize: FS.note, legendFontFace: F, legendColor: C.soft,
       catAxisLabelFontSize: FS.note, valAxisLabelFontSize: FS.note, catAxisLabelFontFace: F, valAxisLabelFontFace: F,
       catAxisLabelColor: C.gray, valAxisLabelColor: C.gray, catAxisLineShow: true, catAxisLineColor: C.line, valAxisLineShow: false,
       ...(o.max ? { valAxisMaxVal: o.max, valAxisMinVal: 0 } : {}), ...(o.major ? { valAxisMajorUnit: o.major } : {}),
@@ -1686,14 +1698,14 @@ function createDeck(pres, opts = {}) {
     const bottom = BOTTOM < 6.6 ? Math.min(o.bottom ?? BOTTOM - 0.6, BOTTOM - 0.6) : o.bottom ?? BOTTOM - 0.6;
     let k = (bottom - top) / (max - min), base = top + max * k;
     const fmt = o.fmt || (v => fmtNum(v, { plus: min < 0 }));
-    // 系列が2つ以上のときは、系列の名前を棒のそば（最後の区分の右、軸の近く）に部品が書く。見出しの行（figHead）に凡例を置いたときは書かない
+    // 系列が2つ以上のときは、凡例の箱を置かず、系列の名前を最初の区分の棒の上に部品が直接書く（2026-11-28）。
+    //   箱と棒の色を引き当てなくてよく、主役の棒を強調の色にしても食い違わない。見出しの行（figHead）に凡例を置いたときは書かない
     const keys = nS > 1 && o.legend !== false && !s._figLegend && ser.every(sr => sr.name);
-    if (nS > 1 && s._figLegend) warn("縦棒：凡例が見出しの行にあって棒から遠い。figHead の凡例を消すと、系列の名前を部品が棒のそばに書く");
-    const keyW = keys ? Math.max(...ser.map(sr => textW(sr.name, FS.body))) + 0.55 : 0;
+    if (nS > 1 && s._figLegend) warn("縦棒：凡例の箱は棒から遠く、強調した棒と色が食い違う。figHead の凡例を消すと、系列の名前を部品が棒の上に書く");
     const gap = o.gap ?? 0.08;
     const labW = Math.max(...o.cats.map(c => textW(c, FS.body))) + 0.25;
     const valW = o.values === false ? 0 : Math.max(...all.map(v => textW(fmt(v), FS.head))) + 0.15;
-    const { bw, slot, x0, x1 } = colSlot("縦棒", { x0: o.x0 ?? M + 0.7, x1: (o.x1 ?? W - M - 0.6) - keyW, n: nC, nS, gap, bw: o.bw,
+    const { bw, slot, x0, x1 } = colSlot("縦棒", { x0: o.x0 ?? M + 0.7, x1: o.x1 ?? W - M - 0.6, n: nC, nS, gap, bw: o.bw,
       needW: Math.max(labW, nS === 1 ? valW : 0, o.focus ? textW(fmt(all.reduce((a, b) => Math.abs(b) > Math.abs(a) ? b : a, 0)), o.focusFs ?? FOCUS_FS) + 0.15 : 0), fill: o.x0 != null && o.x1 != null });
     const gw = bw * nS + gap * (nS - 1);
     rangeBar("縦棒", all.map(v => fmt(v)));
@@ -1720,9 +1732,32 @@ function createDeck(pres, opts = {}) {
       if (liftClear(L, obs, L.v >= 0 ? -1 : 1) > 0.005) lifted.push({ L, y0L });
     });
     };
+    // 系列の名前の置き場所：2系列は、左の名前を左の棒の右端にそろえ、右の名前を右の棒の左端から書く。
+    //   入らないとき・3系列以上は、段にずらして各棒の上から書き、短い線でつなぐ。高さは、名前の幅に重なる棒と値より上
+    const nameH = FS.body * 1.2 / 72;
+    const namePlaces = () => {
+      if (!keys) return [];
+      const ws = ser.map(sr => textW(sr.name, FS.body) + 0.04);
+      const side = nS === 2 && barX(0, 0) + bw - ws[0] >= M;
+      // 相手の系列の値（主役の値は棒より広い）にかかるときは、自分の棒の上に残る範囲で外へ寄せて、棒のすぐ上に置けるようにする
+      let xs = ser.map((_, j) => barX(j, 0));
+      if (side) {
+        const other = j => (o.values === false ? null : LAB[`${j}:0`]);
+        let end = barX(0, 0) + bw - 0.06, start = barX(1, 0) + 0.02;
+        if (other(1) && other(1).x - 0.04 < end && other(1).x - 0.04 > barX(0, 0) + 0.15 && other(1).x - 0.04 - ws[0] >= M) end = other(1).x - 0.04;
+        const r0 = other(0) ? other(0).x + other(0).w + 0.04 : 0;
+        if (r0 > start && r0 < barX(1, 0) + bw - 0.15) start = r0;
+        xs = [end - ws[0], start];
+      }
+      const obs = [...Object.values(BAR), ...(o.values === false ? [] : Object.values(LAB))];
+      const topOver = (a, z) => Math.min(base, ...obs.filter(b => b.x < z && b.x + b.w > a).map(b => b.y));
+      // 2系列は、それぞれの名前を自分の側の棒と値のすぐ上に置く。段にずらすときは、全体の上から順に置く
+      const all2 = topOver(Math.min(...xs), Math.max(...xs.map((x, j) => x + ws[j])));
+      return ser.map((sr, j) => ({ sr, j, x: xs[j], w: ws[j], side, y: side ? topOver(xs[j], xs[j] + ws[j]) - 0.05 - nameH : all2 - 0.06 - nameH * (nS - j), align: side && j === 0 ? "right" : "left" }));
+    };
     layout();
-    // 上げた主役の値が図の見出しの行に入るときは、o.max を渡していなければ、上の余白を広げて描き直す（棒を少し低くする）
-    for (let n = 0; n < 12 && o.max == null && lifted.some(q => q.L.v >= 0 && q.L.y < LIM); n++) { max *= 1.06; layout(); }
+    // 上げた主役の値・系列の名前が図の見出しの行に入るときは、o.max を渡していなければ、上の余白を広げて描き直す（棒を少し低くする）
+    for (let n = 0; n < 14 && o.max == null && (lifted.some(q => q.L.v >= 0 && q.L.y < LIM) || namePlaces().some(p => p.y < LIM)); n++) { max *= 1.06; layout(); }
     lifted.forEach(({ L, y0L }) => {
       {
         if (L.y < LIM || L.y + L.h > BOTTOM) warn(`縦棒の主役の値（${fmt(L.v)}）を、隣の棒・値に重ならない所まで${L.v >= 0 ? "上" : "下"}げたら、図の${L.v >= 0 ? "上端" : "下端"}を超えた（o.max${L.v >= 0 ? "" : "・o.min"} を広げるか、bw を細くして隣と離す）`);
@@ -1740,10 +1775,13 @@ function createDeck(pres, opts = {}) {
     }));
     o.cats.forEach((c, i) => T(s, c, { x: x0 + i * slot, y: bottom + 0.3, w: slot, h: 0.3, fontSize: FS.body, color: C.soft, align: "center", wrap: false }));
     hline(s, x0, base, x1 - x0, { color: C.gray });
-    if (keys) ser.forEach((sr, j) => {
-      const y = base - 0.42 * (nS - j) - 0.08;
-      rect(s, x1 + 0.2, y + 0.12, 0.16, 0.16, focus.size && sr.color === C.emph ? C.gray : sr.color);
-      T(s, sr.name, { x: x1 + 0.42, y, w: keyW - 0.4, h: 0.4, fontSize: FS.body, color: sr.main ? C.ink : C.soft, bold: !!sr.main, valign: "middle", wrap: false });
+    namePlaces().forEach(p => {
+      if (p.y < LIM - 0.02) warn(`縦棒の系列の名前（${p.sr.name}）が、棒の上に入らない（o.max を広げる）`);
+      if (p.x + p.w > W - M + 0.02) warn(`縦棒の系列の名前（${p.sr.name}）が右の端を超える。名前を縮める`);
+      // 名前が自分の棒から離れたら、短い線でつなぐ（2系列でも、隣の区分の値をよけて上がったとき）
+      const lx = barX(p.j, 0) + bw / 2, end = (o.values === false ? BAR : LAB)[`${p.j}:0`].y - 0.03;
+      if (end - (p.y + nameH) > (p.side ? 0.3 : 0.08)) segLine(s, lx, p.y + nameH, lx, end, { color: C.line, width: 0.75 });
+      T(s, p.sr.name, { x: p.x, y: p.y, w: p.w, h: nameH, fontSize: FS.body, color: p.sr.main ? C.ink : C.soft, bold: !!p.sr.main, align: p.align, valign: "middle", wrap: false });
     });
     if (bottom + 0.6 > BOTTOM + 0.05) warn(`縦棒の区分名が本文の下端を超える（bottom ${bottom}）`);
     // 年平均成長率：最初と最後の棒を、値のラベルの上で矢印につなぐ（cagrBars）。率は値から計算し、期間と一緒に書く
@@ -1766,6 +1804,7 @@ function createDeck(pres, opts = {}) {
   // 横棒（図形）：0の線から左右に伸ばす。項目の名前が長い、正負が混ざる、全体と内訳を並べるときに使う
   //   o.rows: [{ label, value, strong?, focusValue?, problem? } | null（行の間を空ける）], o.groups: [{ from, to, text }]（連続した行をまとめた注記。空いた側に縦線と文字）
   //     focusValue: true＝主役の行（strong と同じ塗り）。その値を主役の値 36pt で棒の先に部品が描く（problem も付けると赤）。値の列はその幅だけ広げる
+  //   o.oneCut: 空行（null）で区切るとき、前後に共通する切り口（書かないと確かめを促す）
   //   o.y0（既定 2.6）, o.fmt。項目名は欄の右にそろえて軸のすぐ横に置く。欄の幅・棒の太さ・間は部品が決める（o.labelW・o.bh・o.pitch は、別のページと図をそろえるときだけ）
   const hBars = (s, o) => {
     { // 割合（シェア・構成比）の合計を、内訳と同じ棒に並べたら知らせる（2026-11-25）。予算の「合計と内訳」のような金額は対象外
@@ -1773,6 +1812,8 @@ function createDeck(pres, opts = {}) {
       if (rws.some(isTot) && parts.length > 1 && parts.every(r => Math.abs(r.value) <= 100) && parts.reduce((a, r) => a + Math.abs(r.value), 0) <= 100.5) warn("割合の合計（上位の合計・全体）を、内訳と同じ棒に並べない。全体に占める割合は円（pieChart）で描き、合計は円の中に書く");
     }
     chartPage();
+    // 1つのグラフの区分は、1つの切り口。空行で区切った前後が別の切り口でないかは機械で分からないので、確かめを促す
+    if ((o.rows || []).some((r, i, a) => !r && i > 0 && i < a.length - 1) && !o.oneCut) warn("横棒：空行で区切った前後が、同じ切り口の区分か確かめる（世帯の区分と年代のように違うなら、別のページか、同じ図の続きのページに分ける）。同じ切り口なら o.oneCut にその切り口を書く（例 oneCut: \"全社と会社ごとの内訳\"）");
     const rows = o.rows, vals = rows.filter(Boolean).map(r => r.value), fmt = o.fmt || (v => fmtNum(v, { plus: true }));
     rangeBar("横棒", vals.map(v => fmt(v)));
     if (rows.filter(r => r && r.focusValue).length > 1) warn("横棒：主役の値（focusValue）は1行だけにする");
@@ -4517,7 +4558,7 @@ function createDeck(pres, opts = {}) {
 
   // 段階の道（ロードマップ）：横の道に段階の駅を並べ、駅の下に「次へ進む条件」を値で置く。いちばん下に、資金や体制の帯
   //   段階×観点の表（journeyMap）の代わり。マス目に文を積まず、段階ごとに、名前・時期・絵・条件の値（最大4つ）だけを置く
-  //   o.stages: [{ name, when?, icon?（丸の中の絵。icons/ の名前）, kpis?: [[値, 何の値か, 絵?], ...]（最大4つ。「値　何の値か」が1行で箱の幅に入らないと警告。4段階なら全角10字ほど）, strong? }]（3〜6段階。strong＝見る所の段階を強調の色で塗る。1つだけ）
+  //   o.stages: [{ name, when?, icon?（丸の中の絵。icons/ の名前）, kpis?: [[値, 何の値か, 絵?, { key: true }?], ...]（key は主役の条件：値を大きく書く。資料の持ち帰る値だけ、全体で2つまで。最大4つ。「値　何の値か」が1行で箱の幅に入らないと警告。4段階なら全角10字ほど）, strong? }]（3〜6段階。strong＝見る所の段階を強調の色で塗る。1つだけ）
   //   o.bands: [{ from, to, label, strong? }]（下の帯。資金・体制など）, o.y0（BODY）
   //   戻り値: { col(i) → {x, y, w, h}, X(i), CW, K0, KP, right, bottom }
   const roadmap = (s, o) => {
@@ -4526,7 +4567,11 @@ function createDeck(pres, opts = {}) {
     if (st.filter(x => x.strong).length > 1) warn("段階の道：強調（strong）は1つだけにする");
     const CW = Math.min(2.9, (BW - 0.1) / n - 0.08), X0 = M + CW / 2 + 0.05, STEP = (W - 2 * M - CW - 0.1) / (n - 1), X = i => X0 + i * STEP;
     const WY = y0, NY = y0 + 0.82, R = 0.42, NAME_Y = y0 + 1.36, K0 = y0 + 1.88, KP = 0.47, BH = 0.36;
-    const maxK = Math.max(0, ...st.map(x => (x.kpis || []).length)), BY = K0 + Math.max(maxK, 1) * KP + 0.18;
+    const maxK = Math.max(0, ...st.map(x => (x.kpis || []).length));
+    // 主役の条件（{ key: true }）は、値を大きく書き、何の値かをその下に置く。行が高くなる
+    const KH = 1.0, optOf = it => it.find((v, j) => j >= 2 && v && typeof v === "object") || {};
+    const BY = K0 + Math.max(KP, ...st.map(x => (x.kpis || []).reduce((a, it) => a + (optOf(it).key ? KH : KP), 0))) + 0.18;
+    if (st.flatMap(x => x.kpis || []).filter(it => optOf(it).key).length > 2) warn("段階の道：主役の条件（key）は2つまで。持ち帰る値に絞る");
     if (maxK > 4) warn("段階の道：条件は、段階ごとに4つまで");
     const has = nm => !!findIcon(nm);
     segLine(s, X(0), NY, X(n - 1), NY, { color: C.line, width: 4 });
@@ -4539,8 +4584,19 @@ function createDeck(pres, opts = {}) {
       else T(s, String(i + 1), { x: cx - R, y: NY - R, w: 2 * R, h: 2 * R, fontFace: FNUM, fontSize: 18, bold: true, color: on ? C.white : C.gray, align: "center", valign: "middle" });
       if (textW(x.name, FS.block) > CW - 0.04) warn(`段階の道：段階の名前が長い（${x.name}。${FS.block}pt で全角${Math.floor((CW - 0.04) * 72 / FS.block)}字まで）`);
       T(s, x.name, { x: cx - CW / 2, y: NAME_Y, w: CW, h: 0.34, fontSize: FS.block, bold: true, color: on ? C.emph : C.ink, align: "center", valign: "middle", wrap: false });
-      (x.kpis || []).forEach(([big, small, pic], k) => {
-        const y = K0 + k * KP, ix = pic ? 0.4 : 0;
+      let ky = K0;
+      (x.kpis || []).forEach(it => {
+        const [big, small] = it, pic = typeof it[2] === "string" ? it[2] : undefined, y = ky, ix = pic ? 0.4 : 0;
+        ky += optOf(it).key ? KH : KP;
+        if (optOf(it).key) {
+          const bw = CW - 0.24, fs = Math.min(FOCUS_FS, Math.floor(FOCUS_FS * bw / textW(big, FOCUS_FS)));
+          if (fs < BIG_PT) warn(`段階の道：主役の条件の値「${big}」が箱の幅に入らない。短くする`);
+          if (small && textW(small, FS.body) > bw) warn(`段階の道：主役の条件の説明「${small}」が箱の幅に入らない。言葉を縮める`);
+          rect(s, cx - CW / 2 + 0.08, y, CW - 0.16, KH - 0.07, TINT);
+          T(s, big, { x: cx - CW / 2 + 0.12, y: y + 0.02, w: bw, h: 0.56, fontSize: Math.max(BIG_PT, fs), bold: true, color: C.emph, align: "center", valign: "middle", wrap: false });
+          if (small) T(s, small, { x: cx - CW / 2 + 0.12, y: y + 0.57, w: bw, h: 0.32, fontSize: FS.body, color: C.soft, align: "center", valign: "middle", wrap: false });
+          return;
+        }
         // 「値　何の値か」を1行で書く（折り返さない）。今の文字の大きさ（本文 FS.body）で、箱の幅に入るかを測る
         const kw = CW - 0.28 - ix, need = textW(big, FS.body) + (small ? textW(`　${small}`, FS.body) : 0);
         if (need > kw) warn(`段階の道：条件「${big}${small ? "　" + small : ""}」が箱の幅に入らない（全角${Math.ceil(em(`${big}${small ? "　" + small : ""}`))}字分。この幅で入るのは全角${Math.floor(kw * 72 / FS.body)}字まで）。言葉を縮める`);
@@ -4601,6 +4657,10 @@ function createDeck(pres, opts = {}) {
       const tens = new Set((text.match(/\d+(\.\d+)?(?=割)/g) || []).map(v => String(Number(v))));
       const missing = [...new Set(numsOf(text))].filter(v => !inFig.has(v) && !(tens.has(v) && inFig.has(String(Number(v) * 10))));
       if (missing.length) console.warn(`[deck-parts] P.${l.page} リードの数字（${missing.join("、")}）が、このページの図に無い。図に同じ値を同じ書き方で示すか、リードから外す`);
+      // リードが名指しする値の少なくとも1つは、図の中で主役の大きさにする。年と月（時点）、10 までの人や回の数え方は値に数えない
+      const values = [...new Set(numsOf(text.replace(/(?<![\d.,])(19|20)\d\d(?=年)/g, "").replace(/(?<![\d.,])(1[0-2]|[1-9])(?=月)/g, "").replace(/(?<![\d.,])([1-9]|10)(?=人|名|チーム|周|回|件)/g, "")))].filter(v => inFig.has(v) || (tens.has(v) && inFig.has(String(Number(v) * 10))));
+      const big = new Set(l.big.flatMap(numsOf));
+      if (values.length && !values.some(v => big.has(v) || (tens.has(v) && big.has(String(Number(v) * 10))))) console.warn(`[deck-parts] P.${l.page} リードの数値（${values.join("、")}）が、どれも図の中で大きくない（${BIG_PT}pt 未満）。持ち帰る値を主役の大きさにする（部品の focusValue、roadmap の kpis の { key: true }、focusValue(s, 値, 場所) など）`);
     });
     // 聴講者が持ちうる疑問：リードのある全ページで、問いと答えの場所を書いてから点検する（画面には出さない）
     const noAsk = LEADS.filter(l => l.lead && !l.ask).map(l => l.page);

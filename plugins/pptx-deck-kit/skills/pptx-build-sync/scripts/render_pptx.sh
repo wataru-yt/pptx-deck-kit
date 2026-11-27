@@ -4,6 +4,7 @@
 #   macOS: Microsoft PowerPoint があればそれで書き出す（実機と同じ描画）。なければ LibreOffice (soffice)。RENDER_WITH=libreoffice で LibreOffice を使う。
 #   画像化に pdftoppm（poppler）を使う。
 #   資料の書体（BIZ UDPゴシック・Noto Sans JP）がこの機械に無いと、注意を出して代わりの書体で描く。
+#   書体の有無と、画像に使われたかは、出力の最後の「[render] 書体：…」の行で分かる（ls や fc-list で調べ直さなくてよい）。
 # PowerPoint はサンドボックスのため、任意のフォルダのファイルを開くと「ファイル アクセスを許可」のダイアログが出て止まることがある。
 # これを避けるため、PowerPoint のコンテナ内の作業フォルダへコピーしてから開く（ダイアログは出ない）。
 # 開いた文書の名前を確認してから書き出す（別の文書を書き出す事故を防ぐ）。元ファイルは変更しない。
@@ -19,7 +20,7 @@ find "$OUT" -maxdepth 1 -name 's-*.jpg' -delete
 rm -f "$PDF"
 # 資料の書体（既定の BIZ UDPゴシック、テーマで選ぶ Noto Sans JP）が、この機械にあるかを先に確かめる。
 # 無いと代わりの書体で描くので、折り返しと幅が実物と違う画像になる
-FONT_DIRS=("$HOME/Library/Fonts" /Library/Fonts "$HOME/.local/share/fonts" /usr/share/fonts /usr/local/share/fonts)
+FONT_DIRS=("$HOME/Library/Fonts" /Library/Fonts /System/Library/Fonts "$HOME/.local/share/fonts" /usr/share/fonts /usr/local/share/fonts)
 find_fonts() { find "${FONT_DIRS[@]}" \( -iname "$1*.ttf" -o -iname "$1*.otf" -o -iname "$1*.ttc" \) 2>/dev/null || true; }
 BIZ_FILES=$(find_fonts BIZUDPGothic; find_fonts BIZ-UDPGothic)
 NOTO_FILES=$(find_fonts NotoSansJP)
@@ -104,8 +105,10 @@ if [ "$PPT_OK" != 1 ]; then
   fi
   # LibreOffice を画面なし（headless）で動かすと、Mac では OS の日本語の書体が見えず、文字が四角になる。
   # 専用のプロファイル（利用者の LibreOffice の設定は触らない）の fonts/ に書体をつなぐ。
+  # プロファイルは1回ごとに作って、終わったら消す（共有すると、並行して書き出したときにぶつかって失敗する）
   # 游ゴシック（Yu Gothic）は Mac では Office の中にあるので、あればそれをつなぐ（PowerPoint と同じ書体になる）
-  PROFILE="${XDG_CACHE_HOME:-$HOME/.cache}/pptx-deck-kit/lo-profile"
+  PROFILE=$(mktemp -d "${TMPDIR:-/tmp}/pptx-deck-kit-lo.XXXXXX")
+  trap 'rm -rf "$PROFILE"' EXIT
   mkdir -p "$PROFILE/user/fonts"
   FONT=""
   NO_YU=1
@@ -155,3 +158,11 @@ if command -v pdftoppm >/dev/null 2>&1; then
 else
   python3 "$(dirname "$0")/pdf2png.py" "$PDF" "$OUT"
 fi
+# 書体の結果は最後に出す（出力の末尾だけを見ても分かるように）。LibreOffice は、書体があっても使えないことがあるので、PDF に入った書体も見る
+font_line() { # 表示名 / 見つけたファイル / PDF の中の書体の名前
+  if [ -z "$2" ]; then echo "[render] 書体：$1 はこの機械に無い（見た場所：${FONT_DIRS[*]}）。画像は代わりの書体なので、折り返しと幅はこの画像で判断しない"
+  elif [ "$PPT_OK" != 1 ] && ! LC_ALL=C grep -a -q "+$3" "$PDF"; then echo "[render] 書体：$1 はこの機械にある（${2%%$'\n'*}）が、今の画像に使われていない。もう一度書き出す（build.js の書体は替えない）"
+  else echo "[render] 書体：$1 はこの機械にある（${2%%$'\n'*}）"; fi
+}
+if [[ "$USED_FONTS" == *'"BIZ UDPGothic"'* || "$USED_FONTS" == *'"BIZ UDPゴシック"'* ]]; then font_line "BIZ UDPゴシック" "$BIZ_FILES" BIZUDPGothic; fi
+if [[ "$USED_FONTS" == *'"Noto Sans JP"'* ]]; then font_line "Noto Sans JP" "$NOTO_FILES" NotoSansJP; fi

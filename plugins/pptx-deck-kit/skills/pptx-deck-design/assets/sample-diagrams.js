@@ -78,11 +78,10 @@ d.setChapter(1);
 // 塗りの色を増やさず、枠・破線・文字の濃さで3つの状態を描き分ける。凡例は右上に細い枠の見本だけ
 d.setChapter(2);
 {
-  const s = d.base(null, "企画から試行までで、14項目を新たに身につけた。", { ask: "何の14項目？ → 図の濃い枠の箱", focus: "濃い枠の箱（今回身についた14項目）" });
+  const s = d.base(null, "企画から試行までに、6つの分野すべてで新しいスキルを身につけた。", { ask: "何を身につけた？ → 図の濃い枠の箱（14項目）", focus: "濃い枠の箱（今回身についた14項目）" });
   const N = t => ({ text: t, state: "new" }), E = t => ({ text: t, state: "tried" }), B = t => ({ text: t, state: "base" });
   d.stateMap(s, {
     itemH: 0.46, itemGap: 0.07,
-    // リードの数字（14項目）を、図の中（凡例）でも確かめられるようにする
     states: [{ key: "new", label: "今回身についた（14項目）", style: "frame" }, { key: "tried", label: "経験した（再現性はまだない）", style: "dashed" }, { key: "base", label: "以前から", style: "plain" }],
     // 6列だと箱の中は全角6字まで（箱は1行の高さ）。項目名は6字までの熟語にする
     groups: [
@@ -102,7 +101,7 @@ d.setChapter(2);
 const ROAD = {
   stages: [
     { name: "試行", when: "2026年10〜12月", icon: "pic-search", kpis: [["2部署", "人事と経理"], ["約1日", "待ち"], ["1割", "差し戻し"]] },
-    { name: "全社展開", when: "2027年4月〜", icon: "pic-building", strong: true, kpis: [["12部署", "使う部署"], ["約1日", "待ち"], ["5人", "購買の担当"]] },
+    { name: "全社展開", when: "2027年4月〜", icon: "pic-building", strong: true, kpis: [["約1日", "全社の待ち", { key: true }], ["12部署", "使う部署"], ["5人", "購買の担当"]] },
     { name: "定着", when: "2027年10月〜", icon: "pic-check", kpis: [["月400件", "申請"], ["9割", "入力率"], ["半年", "手引き更新"]] },
     { name: "取引先と連携", when: "2028年4月〜", icon: "pic-contract", kpis: [["3社", "電子の発注"], ["約2日", "見積り"], ["0件", "転記"]] },
   ],
