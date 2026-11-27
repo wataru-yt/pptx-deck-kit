@@ -48,6 +48,7 @@ d.agendaPage();
 d.setChapter(1);
 const FLOW = {
   bottom: 5.3,
+  headH: 0.75, // 下に置く箱がフッターにかからないように、矢羽を低くする
   labelW: 1.1, // 行の名前（2字）に合わせて詰め、工程の列を広げる
   steps: [
     { name: "起票", work: 0.5, wait: 0.5 },
@@ -59,7 +60,7 @@ const FLOW = {
   ],
   rows: [
     { label: "担当", cells: ["申請者", "上長", "購買部", "バイヤー", "購買部", "経理部"] },
-    { label: "課題", cells: ["内訳が抜ける", "上限が不統一", "!3件に1件戻す", "書式が不統一", "手で転記", "照合が手作業"] },
+    { label: "課題", cells: ["内訳が抜ける", "上限が不統一", "!差し戻し3割", "書式が不統一", "手で転記", "照合が手作業"] },
   ],
   backs: [{ from: 2, to: 0, label: "差し戻し" }],
 };
@@ -69,7 +70,7 @@ flow.page({
   lead: "確認の約5日のうち、作業は半日で、残りは待ち。", focus: "3 確認の列（待ち 4.5日）",
   only: [2],
   // 箱は図の下の空きに置き、引き出し線は垂直に列の下端を指す
-  box: r => { const c = r.col(2), cx = c.x + c.w / 2; return { x: c.x, y: c.y + c.h + 0.3, w: 5.2, h: 0.95, head: "待ちは4.5日、作業は半日", body: "2人が、申請を週2回まとめて確認する。", from: [cx, c.y + c.h + 0.3], to: [cx, c.y + c.h + 0.05] }; },
+  box: r => { const c = r.col(2), cx = c.x + c.w / 2; return { x: c.x, y: c.y + c.h + 0.3, w: 5.2, h: 1.05, head: "待ちは4.5日、作業は半日", body: "2人が、申請を週2回まとめて確認する。", from: [cx, c.y + c.h + 0.3], to: [cx, c.y + c.h + 0.05] }; },
 });
 
 // ===== 2. 受け渡し（受け渡す）：4者とシステムのレーン、判断のひし形、帳票、システムの円柱、差し戻しは赤 =====
@@ -79,12 +80,11 @@ d.setChapter(2);
 {
   const s = d.base(null, "購買部の確認で、3件に1件を申請部署へ差し戻す。", { focus: "「内訳？」から申請へ戻る赤の線（3件に1件）" });
   d.swimlane(s, {
-    labelW: 1.1,
     lanes: ["申請部署", "購買部", "取引先", "経理部", "システム"],
     phases: [{ name: "申請と承認", from: 0, to: 1 }, { name: "確認", from: 2, to: 3 }, { name: "見積りと発注", from: 4, to: 5 }, { name: "納品と支払い", from: 6, to: 8 }],
     nodes: [
       { id: "apply", lane: 0, col: 0, name: "申請を\n起票する" },
-      { id: "regA", lane: 4, col: 0, kind: "system", name: "申請の登録" },
+      { id: "regA", lane: 4, col: 0, kind: "system", name: "申請登録" },
       { id: "ok", lane: 0, col: 1, name: "上長が\n承認する" },
       { id: "check", lane: 1, col: 2, name: "内訳を\n確認する", problem: true },
       { id: "q", lane: 1, col: 3, kind: "decision", name: "内訳？" },
@@ -94,9 +94,9 @@ d.setChapter(2);
       { id: "ship", lane: 2, col: 6, name: "納品して\n請求する" },
       { id: "inv", lane: 3, col: 6, kind: "doc", name: "請求書" },
       { id: "recv", lane: 0, col: 7, name: "検収する" },
-      { id: "regR", lane: 4, col: 7, kind: "system", name: "検収の登録" },
+      { id: "regR", lane: 4, col: 7, kind: "system", name: "検収登録" },
       { id: "pay", lane: 3, col: 8, name: "支払う" },
-      { id: "regP", lane: 4, col: 8, kind: "system", name: "支払の登録" },
+      { id: "regP", lane: 4, col: 8, kind: "system", name: "支払登録" },
     ],
     edges: [
       { from: "apply", to: "regA", dashed: true },
@@ -136,11 +136,11 @@ cycle.page({
   lead: "1周の約11日のうち、約5日は購買部の確認で止まる。", focus: "3 購買部の確認の区画",
   only: [2],
   // 箱は左の列の空き（区画3と区画4の名前の間）に置き、引き出し線は垂直に区画3の名前を指す
-  box: r => { const l = r.label(2), x = 0.6; return { x, y: l.y - 1.25, w: 3.9, h: 0.95, head: "依頼のたびに確認する", body: "同じ取引先でも毎回見直す。", from: [l.x + 0.4, l.y - 0.3], to: [l.x + 0.4, l.y - 0.04] }; },
+  box: r => { const l = r.label(2), x = 0.6; return { x, y: l.y - 1.25, w: 3.9, h: 1.05, head: "依頼のたびに確認する", body: "同じ取引先でも毎回見直す。", from: [l.x + 0.4, l.y - 0.3], to: [l.x + 0.4, l.y - 0.04] }; },
 });
 
 // ===== 4. 体制（分かれる）：責任者 → 部署 → チーム（リーダー）→ メンバー。主導の部署だけ強調 =====
-// 部署には人数だけを添える（役目の説明を足さない）。メンバーの役割は全角5字まで（兼務は「兼務」を含めて5字）。部署とチームの名前は全角6字まで
+// 部署には人数だけを添える（役目の説明を足さない）。メンバーの役割は全角5字まで（兼務は「兼務」を含めて5字）。部署とチームの名前は全角5字まで
 d.setChapter(4);
 {
   const s = d.base(null, "購買部が3チームで主導し、システム部と経理部が支える。", { focus: "主導の購買部の箱（15名）" });
@@ -150,18 +150,18 @@ d.setChapter(4);
     staffW: 3.2,
     depts: [
       { name: "購買部", count: "15名", lead: true, teams: [
-        { name: "企画チーム", leader: "課長", members: [{ role: "制度設計", n: 2 }, { role: "支出分析", n: 1 }] },
-        { name: "購買チーム", leader: "主任", members: [{ role: "バイヤー", n: 4 }, { role: "発注事務", n: 2 }] },
-        { name: "取引先チーム", leader: "主任", members: [{ role: "審査", n: 2 }, { role: "契約", n: 1 }] },
+        { name: "企画担当", leader: "課長", members: [{ role: "制度設計", n: 2 }, { role: "支出分析", n: 1 }] },
+        { name: "購買担当", leader: "主任", members: [{ role: "バイヤー", n: 4 }, { role: "発注事務", n: 2 }] },
+        { name: "取引先", leader: "主任", members: [{ role: "審査", n: 2 }, { role: "契約", n: 1 }] },
       ] },
       { name: "システム部", count: "4名", teams: [
-        { name: "購買システム", leader: "課長代理", members: [{ role: "開発", n: 2 }, { role: "運用", n: 1 }] },
+        { name: "システム", leader: "課長代理", members: [{ role: "開発", n: 2 }, { role: "運用", n: 1 }] },
       ] },
       { name: "経理部", count: "3名", teams: [
-        { name: "支払いチーム", leader: "課長", dual: true, members: [{ role: "支払い", n: 1 }, { role: "仕訳", n: 1 }] },
+        { name: "支払い", leader: "課長", dual: true, members: [{ role: "支払い", n: 1 }, { role: "仕訳", n: 1 }] },
       ] },
-      { name: "社外の委託先", count: "5名", ext: true, teams: [
-        { name: "開発チーム", leader: "PM", members: [{ role: "開発", n: 3 }, { role: "デザイン", n: 1 }] },
+      { name: "委託先", count: "5名", ext: true, teams: [
+        { name: "開発担当", leader: "PM", members: [{ role: "開発", n: 3 }, { role: "デザイン", n: 1 }] },
       ] },
     ],
   });

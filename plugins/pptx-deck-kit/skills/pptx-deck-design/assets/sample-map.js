@@ -50,7 +50,7 @@ const MAP = {
   quads: ["組み込みの基盤", "", "", "汎用の対話"],
   size: { unit: "社", max: 2500 },
   points: [
-    { name: "A社", x: 0.13, y: 0.77, size: 900 }, // 左上の象限の名前（18pt）の下に置く
+    { name: "A社", x: 0.21, y: 0.75, size: 900 }, // 左上の象限の名前の下に置く
     { name: "B社", x: 0.8, y: 0.22, size: 2500 },
     { name: "C社", x: 0.68, y: 0.3, size: 700 },
     { name: "D社", x: 0.3, y: 0.68, size: 450 },
@@ -67,17 +67,17 @@ const pos = d.series((s, x) => { d.figHead(s, "円の大きさ＝利用企業数
 {
   const { s, r } = pos.page({ lead: "試作版の当社（12社）は、右上の空白地帯を狙う。", focus: "当社の点（12社）と右上への矢印" });
   const [px, py] = r.pt(7);
-  d.focusValue(s, "12社", { x: px - 0.2, y: py + 0.18, w: 1.4 });
+  d.focusValue(s, "12社", { x: px - 1.0, y: py - 0.68, w: 1.4, align: "center" });
 }
 {
   const { s, r } = pos.page({
     lead: "業務まで任せられる3社は、導入に3か月以上かかる。", focus: "左上の象限の3社（A社・D社・G社）",
     spot: r => r.quad(0),
     // 箱は左下の象限の空き（F社の右）に置き、引き出し線は垂直に D社の円の下を指す
-    box: r => { const [dx, dy] = r.pt(3), dr = r.d(3) / 2, y = r.py(0.42); return { x: dx - 0.4, y, w: 2.8, h: 1.2, head: "手順の登録が要る", body: "専任の担当が業務ごとに登録する。", from: [dx, y], to: [dx, dy + dr + 0.04] }; },
+    box: r => { const [dx, dy] = r.pt(3), dr = r.d(3) / 2, y = r.py(0.42); return { x: dx - 0.4, y, w: 3.0, h: 1.1, head: "手順の登録が要る", body: "業務ごとに登録する。", from: [dx, y], to: [dx, dy + dr + 0.04] }; },
   });
   const q = r.quad(0);
-  d.focusValue(s, "3か月以上", { x: q.x + 0.15, y: r.py(0.62) - 0.25, w: 2.2 });
+  d.focusValue(s, "3か月以上", { x: q.x + 0.15, y: r.py(0.57) - 0.25, w: 2.2 });
 }
 
 // ===== 2. 利用の定着（絞り込む）：段は一定の比率で狭め、値は右の数字で。離れる段だけ赤 =====
@@ -85,7 +85,7 @@ const pos = d.series((s, x) => { d.figHead(s, "円の大きさ＝利用企業数
 d.setChapter(2);
 const FUN = {
   x: 1.25, unit: "人", drop: 2,
-  stages: [{ name: "対象の社員", value: 800 }, { name: "登録", value: 620 }, { name: "初めての質問", value: 480 }, { name: "2週目も利用", value: 210 }, { name: "毎週使う", value: 150 }],
+  stages: [{ name: "対象の社員", value: 800 }, { name: "登録", value: 620 }, { name: "初めての質問", value: 480 }, { name: "2週目利用", value: 210 }, { name: "毎週使う", value: 150 }],
   cols: [{ head: "段階の定義", cells: ["現場の作業者を除く全社員", "チャットにボットを追加", "質問を1回以上送った", "2週目にも質問を送った", "4週続けて週1回以上"] }],
 };
 const drawFunnel = (s, x) => {
@@ -99,19 +99,19 @@ fun.page({ lead: "最も離れるのは2週目で、480人のうち270人が使�
 fun.page({
   lead: "離れた理由は、回答の根拠が示されないこと。", focus: "2週目の手前で離れる人数（−270人）",
   // 見る所：離れる段の前後（段・人数・率）と、見る所の値だけを元の濃さで残す
-  spot: r => { const a = r.band(2), b = r.band(3), c = r.cell(0, 2); return { x: 0.6, y: a.y, w: c.x - 0.25 - 0.6, h: b.y + b.h - a.y }; },
+  spot: r => { const a = r.band(2), b = r.band(3), c = r.cell(0, 2); return { x: 0.6, y: a.y - 0.14, w: c.x - 0.25 - 0.6, h: b.y + b.h - a.y + 0.28 }; },
   // 箱は、離れる段の定義のセル2つ（薄くしたもの）をちょうど覆い、引き出し線は水平に率の赤枠を指す
   box: r => { const c2 = r.cell(0, 2), c3 = r.cell(0, 3), [cx, cy] = r.conv(2); return { x: c2.x, y: c2.y, w: c2.w, h: c3.y + c3.h - c2.y, head: "回答の根拠が分からない", body: "出典が出ず、確認し直す手間がかかる。", from: [c2.x, cy], to: [cx + 0.62, cy] }; },
 });
 
 // ===== 3. 基盤の構成（仕組み）：アイコンのノード、まとまりの領域、鉤の矢印 =====
 // 格子は 5列 × 3行。左から 利用者 → 社内で使う道具 → 社内のAI基盤 → 外部のAI。下に箱1つ分の空きを残す（h）
-// 名前が 18pt なので、札を小さくし（tile）、行を 0.24・1.19・2.14 に置いて、縦の線のラベルが入る間（約0.3）を各行の間に取る
+// 名前が大きいので、札を小さくし（tile）、行を 0.24・1.19・2.14 に置く
 d.setChapter(3);
 const ARCH = {
   cols: 5, rows: 3, tile: 0.48, h: 3.75,
   groups: [
-    { id: "tools", name: "社内で使う道具", c: [1, 1], r: [-0.08, 2.18], style: "dash", inset: 0.18 }, // 枠の左右を内へ寄せて「レビュー」の線のラベルが入る長さを取る（上下は r をずらして他のまとまりとそろえる）
+    { id: "tools", name: "社内の道具", c: [1, 1], r: [-0.08, 2.18], style: "dash", inset: 0.18 }, // 枠の左右を内へ寄せて、利用者からの線のラベルが入る長さを取る（上下は r をずらして他のまとまりとそろえる）
     { id: "base", name: "社内のAI基盤", icon: "cloud", c: [2, 3], r: [0, 2.1], style: "fill" },
     { id: "ai", name: "外部のAI", c: [4, 4], r: [0, 2.1], style: "dash" },
   ],
@@ -132,12 +132,12 @@ const ARCH = {
   ],
   edges: [
     { from: "emp", to: "chat", label: "質問" },
-    { from: "dev", to: "git", label: "レビュー" },
+    { from: "dev", to: "git", label: "依頼" },
     { from: "chat", to: "gw" },
     { from: "git", to: "gw", route: "hvh", mid: 1.5 },
     { from: "gw", to: "route" },
-    { from: "gw", to: "log", label: "誰が・何を" },
-    { from: "route", to: "search", both: true, label: "根拠" }, // 右に AI（コード・長文）へ下りる線があるので、ラベルはその手前に入る2字
+    { from: "gw", to: "log" },
+    { from: "route", to: "search", both: true }, // 縦の短い線にはラベルを置かない（ノードの名前で分かる）
     { from: "route", to: "aiTalk" },
     { from: "route", to: "aiCode", route: "hvh", mid: 3.5 },
     { from: "route", to: "aiTable", route: "hvh", mid: 3.5 },
@@ -151,7 +151,7 @@ arch.page({
   lead: "共有フォルダの文書は毎晩取り込み、回答の根拠にする。", focus: "文書の取り込みのノード",
   only: ["ingest"],
   // 箱は図の下の空きに置き、引き出し線は垂直に取り込みのノードの名前の下を指す
-  box: r => { const n = r.node("ingest"), y = n.bottom + 0.1; return { x: n.cx - 2.5, y, w: 5.0, h: 0.55, head: "更新分だけ、部署の権限つきで取り込む", from: [n.cx, y], to: [n.cx, n.bottom + 0.03] }; },
+  box: r => { const n = r.node("ingest"), y = n.bottom + 0.1; return { x: n.cx - 2.5, y, w: 5.0, h: 0.55, head: "更新分を権限つきで取り込む", from: [n.cx, y], to: [n.cx, n.bottom + 0.03] }; },
 });
 
 d.finalize(OUT);

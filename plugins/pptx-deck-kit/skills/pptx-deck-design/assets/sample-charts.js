@@ -57,12 +57,12 @@ d.setChapter(1);
   const s = d.base(null, "上期の売上120億円のうち、法人向けが42%を占めた。", { focus: "法人向けの区分と42%" });
   d.figHead(s, "区分別の売上の構成比（2026年度上期、合計120億円）");
   const tot = 120, p = d.pieChart(s, {
-    labelW: 3.3, // 1行の注（金額と前年差。16pt で全角15字弱）が折れない幅
+    labelW: 3.3, // 1行の注（金額と前年差）が折れない幅
     fmt: it => (it.strong ? " " : Math.round(it.value / tot * 100) + "%"),
-    // 注（金額と前年差）は主役の区分だけに付ける（16pt だと、4つの区分に3行ずつ積むと左の列で名前と注が詰まって区切りが読めない）
+    // 注（金額と前年差）は主役の区分だけに付ける（4つの区分に3行ずつ積むと、左の列で名前と注が詰まって区切りが読めない）
     // 主役の注の頭に改行を入れ、36pt の割合を置く行の高さを空ける
     items: [
-      { name: "法人向け", value: 50.4, note: "\n50.4億円　前年差 +6ポイント", strong: true },
+      { name: "法人向け", value: 50.4, note: "\n50.4億円・前年差+6pt", strong: true },
       { name: "個人・店頭", value: 26.4 },
       { name: "個人・通販", value: 21.6 },
       { name: "保守・修理", value: 14.4 },
@@ -125,13 +125,13 @@ d.setChapter(1);
   ];
   const r = d.hStackBars(s, {
     series: [{ name: "満足", color: G1, main: true }, { name: "やや満足", color: G2 }, { name: "どちらでもない", color: G3 }, { name: "不満", color: G4 }],
-    rows, bh: 0.46, pctFmt: v => (Math.round(v * 100) === 23 ? "" : Math.round(v * 100) + "%"),
+    rows, pctFmt: v => (Math.round(v * 100) === 23 ? "" : Math.round(v * 100) + "%"),
     // 右端の見出しは「不満」の区分名（細い区画の上）と重ならない長さに
     right: { head: "やや満足以上", value: row => (row.values[0] + row.values[1]) + "%" },
   });
   const i = rows.length - 1, y = r.rowY(i), w = rows[i].values[0] / 100 * (r.x1 - r.x0);
   focusSeg(s, r.x0, y, w, r.bh);
-  d.focusValue(s, "23%", { x: r.x0, y: y + r.bh / 2 - 0.25, w, align: "center" }, { onFill: true });
+  d.focusValue(s, "23%", { x: r.x0, y: y + r.bh / 2 - 0.25, w, align: "center", fontSize: 24 }, { onFill: true }); // 棒の中の主役の値は、棒の太さに入る大きさにする
 }
 
 // マリメッコ：横幅＝市場の大きさ、高さ＝区分の中のシェア。プレーヤー名は右端の列の横
@@ -189,9 +189,8 @@ d.setChapter(2);
 // 対の棒：2系列（計画と実績）。比べる相手（実績）は濃い灰、残り（計画）は薄い灰、見る所の1本だけ強調の色と 28pt の値（colBars の focus）
 {
   const s = d.base(null, "計画を上回ったのは関東だけで、実績は42.2億円だった。", { focus: "関東の実績の棒と42.2" });
-  // 凡例は figHead の文の幅を 12pt で見積もって置くので（16pt の文に重なる）、文と凡例を分けて置く
-  const fh = "地域別の売上の計画と実績（2026年度上期、億円）";
-  d.figHead(s, fh); d.figHead(s, "", [["計画", G2], ["実績", G1]], { x: M + d.textW(fh, FS.body) });
+  // 凡例は見出しの行に置かない。系列の名前は、部品が棒のそば（最後の区分の右）に書く
+  d.figHead(s, "地域別の売上の計画と実績（2026年度上期、億円）");
   d.colBars(s, {
     cats: ["関東", "近畿", "中部", "九州", "北海道・東北"],
     series: [{ name: "計画", color: G2, values: [38.0, 24.5, 18.0, 11.5, 9.0] }, { name: "実績", color: G1, values: [42.2, 21.4, 16.9, 10.8, 8.1] }],
@@ -226,7 +225,7 @@ d.setChapter(2);
     { label: "北口店", value: 4.2 }, { label: "空港店", value: 3.9 }, { label: "大学前店", value: 3.6 }, { label: "西口店", value: 3.0 },
     { label: "郊外店", value: 2.1 }, { label: "工業団地店", value: 1.9 }, { label: "山手店", value: 1.6 },
   ];
-  d.hBars(s, { fmt: v => v.toFixed(1), y0: 2.6, pitch: 0.4, bh: 0.3, rows }); // 主役の行の focusValue で、6.8 を部品が 36pt で棒の先に描く
+  d.hBars(s, { fmt: v => v.toFixed(1), rows }); // 主役の行の focusValue で、6.8 を部品が 36pt で棒の先に描く
 }
 
 // 正負の棒：0の線から上下に。増えた区分と減った区分を1枚で。見る所の1本は colBars の focus（28pt の値も部品が描く）
@@ -334,7 +333,7 @@ d.setChapter(4);
     ],
   });
   const ym = (r.yOf(r.cum[n - 1][2][0]) + r.yOf(r.cum[n - 1][2][1])) / 2;
-  d.focusValue(s, "920件", { x: r.xOf(n - 1) + 0.15 + d.textW("通販　", 12), y: ym - 0.25, w: 1.6 });
+  d.focusValue(s, "920件", { x: r.xOf(n - 1) + 0.15 + d.textW("通販　", 20) + 0.08, y: ym - 0.25, w: 1.6 });
 }
 
 // 帯でつなぐ積み上げ（ribbonBars）：構成の推移。棒の上は見る所の区分の割合。見る所の1区画（最新の年の大口）だけ強調の色
@@ -399,7 +398,7 @@ d.setChapter(4);
     rows: [{ label: "人数", h: 0.4, cells: ["1名", "2名", "2名", "3名"] }],
   });
   d.rect(s, r.sx(3) + 0.03, r.yT, r.sw(3) - 0.06, r.yB - r.yT, null, { color: C.emph, width: 2.25 });
-  d.focusValue(s, "5,600万円", { x: r.sx(3), y: r.yT - 0.81, w: r.sw(3), align: "center" }); // 下の「月1,400万円」に重ならない高さ
+  d.focusValue(s, "5,600万円", { x: r.sx(3), y: r.yT - 0.82, w: r.sw(3), align: "center" }); // 下の「月1,400万円」に重ならない高さ
 }
 
 // ===== 5. 分布・関係 =====
@@ -446,13 +445,13 @@ d.setChapter(5);
   const s = d.base(null, "最も伸びる海外市場で、自社のシェアは4%にとどまる。", { focus: "海外の円と4%" });
   d.figHead(s, "市場ごとの成長率と自社のシェア（2025年度）。円の大きさは市場の大きさ");
   const pts = [
-    { name: "法人・大口　420億円", x: 3.2, y: 38, size: 420 }, { name: "法人・中小　310億円", x: 4.8, y: 24, size: 310 },
+    { name: "法人・大口　420億円", x: 0.5, y: 41, size: 420 }, { name: "法人・中小　310億円", x: 4.8, y: 24, size: 310 },
     { name: "個人・店頭　260億円", x: -2.1, y: 14, size: 260 }, { name: "個人・通販　180億円", x: 12.4, y: 9, size: 180 },
     { name: "公共　90億円", x: 1.5, y: 29, size: 90 }, { name: "海外　150億円", x: 14.1, y: 4, size: 150, strong: true }, { name: "保守　120億円", x: 6.3, y: 33, size: 120 },
   ];
   const maxD = 1.15, r = d.scatter(s, {
-    // 右端の海外の円の右に名前が入るよう、横軸を 18% まで
-    xName: "市場の成長率（年率、%）", yName: "自社のシェア（%）", xMin: -4, xMax: 18, area: SC_AREA, yMax: 50, xFmt: v => d.fmtNum(v, { unit: "%" }), yFmt: v => `${v}%`, maxD,
+    // 右端の海外の円の右に名前が入るよう、横軸を 22% まで
+    xName: "市場の成長率（年率、%）", yName: "自社のシェア（%）", xMin: -4, xMax: 22, area: SC_AREA, yMax: 50, xFmt: v => d.fmtNum(v, { unit: "%" }), yFmt: v => `${v}%`, maxD,
     refX: { value: 5, label: "全体の成長率 5%" }, points: pts,
   });
   const [px, py] = r.pt(5), dd = maxD * Math.sqrt(150 / 420);
@@ -480,7 +479,7 @@ d.setChapter(5);
   const s = d.base(null, "価格だけが3.1点で、A社の3.9点を下回る。", { focus: "価格の自社の点と3.1（赤）" });
   const fh = "観点別の評価（5点満点、2026年9月の調査）"; // 凡例は文と分けて置く
   d.figHead(s, fh); d.figHead(s, "", [["自社", C.soft], ["A社", G2]], { x: W - M - 2.2 }); // 凡例は右端に（中央に置くと上の観点「品質」に重なる）
-  const axes = ["品質", "機能", "デザイン", "価格", "サポート", "納期"], cy = 4.45, rr = 1.62;
+  const axes = ["品質", "機能", "デザイン", "価格", "サポート", "納期"], cy = 4.58, rr = 1.5;
   const r = d.radarChart(s, {
     axes, max: 5, fmt: v => (v === 3.1 ? "" : v.toFixed(1)), cy, r: rr,
     series: [{ name: "自社", values: [4.4, 4.2, 4.0, 3.1, 4.3, 4.1], main: true, color: C.soft }, { name: "A社", values: [3.9, 3.8, 3.6, 3.9, 3.4, 3.7], color: G2 }],
@@ -488,8 +487,8 @@ d.setChapter(5);
   const [px, py] = r.pt(3, 3.1);
   dot(s, px, py, 0.2, C.accent);
   // 価格の観点の名前は下。2行目は「（自社の値）／A社の値」なので、自社の値を「／3.9」の左に大きく書く
-  const y2 = cy + rr + 0.16 + 0.21 + 0.13;
-  d.focusValue(s, "3.1", { x: W / 2 - 0.26 - 1.2, y: y2 - 0.25, w: 1.2, align: "right" }, { problem: true });
+  const y2 = cy + rr + 0.16 + 0.43;
+  d.focusValue(s, "3.1", { x: W / 2 - 0.4 - 1.2, y: y2 - 0.25, w: 1.2, align: "right" }, { problem: true });
 }
 
 // 人口ピラミッド：2群を左右に。項目名は中央、値は棒の外。見る所の1本（30代の女性）だけ強調の色
@@ -501,7 +500,7 @@ d.setChapter(5);
     { label: "40代", left: 44, right: 58 }, { label: "30代", left: 46, right: 60 }, { label: "20代", left: 30, right: 38 }, { label: "10代", left: 12, right: 16 },
   ];
   const r = d.butterfly(s, { names: ["男性", "女性"], fmt: v => (v === 60 ? "" : (v / 10).toFixed(1)), rows });
-  const mw = 1.1, x = W / 2 + mw / 2, w = 60 * r.k, y = r.rowY(4);
+  const x = r.cx + r.mw / 2, w = 60 * r.k, y = r.rowY(4);
   focusSeg(s, x, y, w, r.bh);
   d.focusValue(s, "6.0", { x: x + w + 0.08, y: y + r.bh / 2 - 0.25, w: 1.0 });
 }
@@ -526,13 +525,13 @@ d.setChapter(6);
 {
   const s = d.base(null, "業務記録ツールの国内市場1,650億円のうち、3年目に約27億円を狙う。", { focus: "SOM の行と約27億円" });
   d.tamSamSom(s, {
-    // 円の中の一言は 18pt。内側の円ほど入る字数が減る（外 9字・中 7字・内 5字ほど）。絞り込みの条件（国内・クラウド・3年目）は対象の列で言う
-    // 列の幅：金額の列は 36pt の「約27億円」（幅 2.1）が入る 2.15、残りを対象と根拠に（合計は帯の中の幅 6.7）。文は意味の切れ目で改行し、短い行を残さない
-    colW: [2.15, 2.0, 2.55],
+    // 円の中の一言は見出しの大きさ。内側の円ほど入る字数が減る（内側は全角4字まで）。絞り込みの条件（国内・クラウド・3年目）は対象の列で言う
+    // 列の幅：金額の列は主役の「約27億円」が入る幅、残りを対象と根拠に。文は意味の切れ目で改行し、短い行を残さない
+    colW: [2.35, 1.9, 2.4],
     items: [
-      { name: "TAM", what: "業務記録ツール", value: "約1,650億円", scope: "国内企業が業務記録\nツールに払う額\n（2025年）", basis: "架空の業界推計を、\n対象の業種で集計" },
-      { name: "SAM", what: "中小企業向け", value: "約480億円", scope: "従業員300人未満で\nクラウドを使う企業", basis: "TAM\n× クラウドの比率 40%\n× 300人未満の比率 73%" },
-      { name: "SOM", what: "有料の顧客", value: "約27億円", scope: "3年目に有料で使う\n1,500社", basis: "1,500社\n× 年の単価180万円", strong: true },
+      { name: "TAM", what: "業務記録ツール", value: "約1,650億円", scope: "国内企業の\n支払総額\n（2025年）", basis: "架空の業界推計\nを業種で集計" },
+      { name: "SAM", what: "中小企業向け", value: "約480億円", scope: "300人未満で\nクラウド利用", basis: "TAM\n×クラウド40%\n×300人未満73%" },
+      { name: "SOM", what: "有料顧客", value: "約27億円", scope: "3年目の\n有料1,500社", basis: "1,500社\n×年180万円", strong: true },
     ],
   });
 }

@@ -82,7 +82,7 @@ d.setChapter(2);
   const N = t => ({ text: t, state: "new" }), E = t => ({ text: t, state: "tried" }), B = t => ({ text: t, state: "base" });
   d.stateMap(s, {
     itemH: 0.46, itemGap: 0.07,
-    // 6列だと箱の中は 16pt で全角6字まで（箱は1行の高さ）。項目名は6字までの熟語にする
+    // 6列だと箱の中は全角6字まで（箱は1行の高さ）。項目名は6字までの熟語にする
     groups: [
       { name: "企画", items: [N("業務の調査"), N("効果の試算"), E("予算の申請")] },
       { name: "業務の設計", items: [N("承認の流れ"), N("例外の整理"), N("手引きの作成"), E("社内への説明")] },
@@ -104,7 +104,7 @@ const ROAD = {
     { name: "定着", when: "2027年10月〜", icon: "pic-check", kpis: [["月400件", "申請"], ["9割", "入力率"], ["半年", "手引き更新"]] },
     { name: "取引先と連携", when: "2028年4月〜", icon: "pic-contract", kpis: [["3社", "電子の発注"], ["約2日", "見積り"], ["0件", "転記"]] },
   ],
-  bands: [{ from: 0, to: 0, label: "試行　120万円" }, { from: 1, to: 1, label: "全社展開　480万円" }, { from: 2, to: 3, label: "運用　年180万円" }],
+  bands: [{ from: 0, to: 0, label: "試行　120万円" }, { from: 1, to: 1, label: "展開　480万円" }, { from: 2, to: 3, label: "運用　年180万円" }],
 };
 const road = d.series(s => d.roadmap(s, ROAD), { check: CHECK });
 d.setChapter(3);
@@ -117,7 +117,7 @@ d.setChapter(4);
   const box = r => {
     // 定着と取引先との連携の条件の箱を、ちょうど覆う位置と大きさにする（薄くした文字に半端に重ねない）
     const x0 = r.X(2) - r.CW / 2 + 0.08, x1 = r.X(3) + r.CW / 2 - 0.08;
-    return { x: x0, y: r.K0, w: x1 - x0, h: 3 * r.KP - 0.07, head: "全社展開の承認", body: "4月に12部署で始め、購買部の担当を1人増やす。" };
+    return { x: x0, y: r.K0, w: x1 - x0, h: 3 * r.KP - 0.07, head: "全社展開の承認", body: "4月に12部署で始め、担当を1人増やす。" };
   };
   const { s, r } = road.page({ lead: "4月からの全社展開と、費用480万円の承認をお願いしたい。", focus: "決める額（480万円）", spot: rr => rr.col(1), box });
   if (!CHECK) { const b = box(r); d.focusValue(s, "480万円", { x: b.x + b.w - 2.3, y: b.y + 0.06, w: 2.2, align: "right" }); }

@@ -37,7 +37,9 @@ Claude Code の中なら、次の1行。
 | 画像にして確かめる | PowerPoint（Mac）か LibreOffice。PDF を画像にするのに pdftoppm（poppler）か `pip install pymupdf pillow` |
 | アイコンを資料の色に塗り直す | `pip install pillow` |
 
-LibreOffice で描くときは `RENDER_WITH=libreoffice` を付ける。日本語の書体は、Office の游ゴシックがあればそれを、無ければヒラギノ（Mac）か Noto Sans CJK JP を使う。
+LibreOffice で描くときは `RENDER_WITH=libreoffice` を付ける。
+
+資料の書体の既定は BIZ UDPゴシック（テーマで Noto Sans JP も選べる）。Windows 10・11 には BIZ UDPゴシックが入っている。入っていない PC では、[Google Fonts](https://fonts.google.com/specimen/BIZ+UDPGothic)（OFL）から入れる。pptx は開く PC の書体で表示されるので、配る相手に無い書体は代わりの書体になる。画像にして確かめる PC に書体が無いと、`render_pptx.sh` が先に知らせ、代わりの書体（ヒラギノか Noto Sans CJK JP）で描く。
 
 ## 使い方
 
@@ -118,7 +120,7 @@ build.js に別の色が書いてあっても、会社の色が優先される�
 {
   "extends": "corporate",
   "colors": { "emph": "00806E" },
-  "font": { "face": "Yu Gothic", "heading": "Meiryo" },
+  "font": { "face": "Noto Sans JP" },
   "footer": { "style": "band", "copyright": "© Example Inc.", "confidential": "社外秘", "logo": "logo.png" },
   "cover": { "affil": "株式会社エグザンプル 経営企画部", "logo": "logo.png" }
 }
@@ -130,7 +132,7 @@ build.js に別の色が書いてあっても、会社の色が優先される�
 python3 <スキルの置き場所>/pptx-deck-design/scripts/theme_from_pptx.py 会社のテンプレート.potx ~/.claude/pptx-deck/theme.json
 ```
 
-テーマで文字を小さくできるのは下限まで（題 20pt・リード 18pt・本文や名前 14pt・主役の値 24pt。既定は題 26pt・リード 22pt・本文 16pt・主役の値 36pt）。スライドの大きさは 16:9 だけで、本文のページを濃い地にすることはできない（表紙・章扉は濃くてよい）。チームの書き方の決まりは、同じフォルダの `rules.md` に書けば、スキルが最初に読む（1ページ1メッセージなどの芯の決まりは外せない）。項目の一覧は `plugins/pptx-deck-kit/skills/pptx-deck-design/references/tokens.md` の「テーマの設定の項目」。
+テーマで文字を小さくできるのは下限まで（題 20pt・リード 18pt・本文や名前 14pt・主役の値 24pt。既定は題 26pt・リード 22pt・本文 19pt・主役の値 36pt）。スライドの大きさは 16:9 だけで、本文のページを濃い地にすることはできない（表紙・章扉は濃くてよい）。チームの書き方の決まりは、同じフォルダの `rules.md` に書けば、スキルが最初に読む（1ページ1メッセージなどの芯の決まりは外せない）。項目の一覧は `plugins/pptx-deck-kit/skills/pptx-deck-design/references/tokens.md` の「テーマの設定の項目」。
 
 ## アイコンとロゴ
 

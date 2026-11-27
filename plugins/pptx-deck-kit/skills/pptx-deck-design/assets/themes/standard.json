@@ -1,14 +1,14 @@
 {
   "name": "standard",
-  "description": "今の既定と同じ見た目（紺の1色・游ゴシック・ページ番号だけのフッター・題と日付の表紙）。自分のテーマを作るときの写しの元にもなる",
+  "description": "今の既定と同じ見た目（紺の1色・BIZ UDPゴシック・ページ番号だけのフッター・題と日付の表紙）。自分のテーマを作るときの写しの元にもなる",
   "colors": {
     "ink": "002B5C", "emph": "002B5C", "dark": "002B5C",
     "soft": "4A5568", "gray": "8A8F99", "pale": "B3B8C1", "line": "D9DDE3", "faint": "979DA8",
     "tint": "F4F6F9", "strong": "E3EAF4", "accent": "B3261E", "link": "0066CC",
     "white": "FFFFFF", "grid": "EEEEEE", "bar": "C9CED6"
   },
-  "font": { "face": "Yu Gothic", "number": "Arial" },
-  "sizes": { "title": 26, "lead": 22, "large": 20, "name": 18, "body": 16, "note": 16, "focus": 36 },
+  "font": { "face": "BIZ UDPGothic" },
+  "sizes": { "title": 26, "lead": 22, "large": 20, "name": 20, "body": 19, "note": 19, "focus": 36 },
   "footer": { "style": "page", "pageNumber": true },
   "cover": { "style": "auto" },
   "layout": { "sectionY": 0.38, "titleY": 0.66, "leadY": 1.32 }
