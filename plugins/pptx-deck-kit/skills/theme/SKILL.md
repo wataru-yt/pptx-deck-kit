@@ -20,7 +20,7 @@ description: pptx 資料の見た目（会社の色・ロゴ・書体・文字�
 
 ## A. 設定が無いときに、最初の1回だけ聞く
 
-pptx-deck-design で資料を作り始めるとき、個人にもプロジェクトにも `theme.json` が無ければ、作る前に1回だけ聞く（AskUserQuestion が使えればそれで、無ければ文で）。
+pptx-deck-design で資料を作り始めるとき、個人にもプロジェクトにも `theme.json` が無ければ、作る前に AskUserQuestion で1回だけ聞く。AskUserQuestion が使えないとき（非対話の実行など）は聞かず、保存もせず、おまかせで資料を作り、最後の返答で「見た目は `/pptx-deck-kit:theme` で変えられる」と一言添える。利用者が `/pptx-deck-kit:theme` を自分で呼んだときは、ツールが無くても文で聞く。
 
 > 資料の見た目（色・ロゴ・フッター）はどうしますか？
 > ① 会社のテンプレート（pptx）がある → ファイルを渡す

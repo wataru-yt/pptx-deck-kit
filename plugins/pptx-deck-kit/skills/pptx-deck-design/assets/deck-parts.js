@@ -375,7 +375,7 @@ function createDeck(pres, opts = {}) {
   const layers = [];
   const useFiles = opts.themeFiles !== false && process.env.PPTX_DECK_THEME_FILES !== "0";
   const files = useFiles ? findThemeFiles() : {};
-  if (useFiles && !files.personal && !files.project) console.log("[deck-parts] 見た目の設定（theme.json）が無い。利用者に見た目（会社の色・ロゴ／おまかせ）を1回だけ聞く（/pptx-deck-kit:theme）");
+  if (useFiles && !files.personal && !files.project) console.log("[deck-parts] 見た目の設定（theme.json）が無い。質問のツール（AskUserQuestion）が使えるなら、見た目（会社の色・ロゴ／おまかせ）を1回だけ聞く（/pptx-deck-kit:theme）。使えなければ聞かずにおまかせで進む");
   if (files.personal) layers.push(...themeFileLayers(files.personal));
   if (files.project) layers.push(...themeFileLayers(files.project));
   if (opts.theme) layers.push(...themeLayers(opts.theme, process.cwd(), "opts.theme").map(L => ({ ...L, fromOpts: true })));
@@ -521,7 +521,7 @@ function createDeck(pres, opts = {}) {
     if (!out.drawn) return;
     const objects = out.objects.map(o => {
       const pos = { x: o.x, y: o.y, w: o.w, h: o.h }, tr = o.transparency ?? 0;
-      if (o.type === "image") return { image: { path: o.path, ...pos, ...(tr ? { transparency: tr } : {}), ...(o.rotate ? { rotate: o.rotate } : {}) } };
+      if (o.type === "image") return { image: { path: o.path, altText: "飾り", ...pos, ...(tr ? { transparency: tr } : {}), ...(o.rotate ? { rotate: o.rotate } : {}) } };
       if (o.type === "line") return { line: { ...pos, h: o.h || 0, ...(o.flipV ? { flipV: true } : {}), line: { color: o.color, width: o.width ?? 1, ...(o.dash ? { dashType: o.dash } : {}), ...(tr ? { transparency: tr } : {}) } } };
       if (o.type === "text") return { text: { text: String(o.text ?? ""), options: { ...pos, margin: 0, color: o.color, fontSize: o.size ?? 12, bold: !!o.bold, align: o.align || "left", valign: o.valign || "middle", fontFace: o.font || F, ...(o.rotate ? { rotate: o.rotate } : {}), ...(tr ? { transparency: tr } : {}) } } };
       const line = o.line ? { color: hexOf(o.line.color, C.line), width: o.line.width ?? 1 } : { type: "none" };
@@ -643,6 +643,9 @@ function createDeck(pres, opts = {}) {
   const chartPage = () => { if (page) CHARTP[page] = true; };
   // 見る所の値：36pt（FOCUS_FS）・太字・強調の色（problem なら赤）。グラフの見る所のすぐ隣に置く
   // 見る所の値は、その要素の普通の値の位置に書く（棒なら棒の上、区画なら区画の中）。塗りの上に置くときは onFill で白にする
+  // 範囲しか分からない値（「100g未満」「120g以上」「1〜3日」）は、長さ・位置・角度にしない（2026-11-27）
+  const isRange = t => /未満|以上|以下|以内|\d[^\d\s]{0,3}\s*[〜～~]\s*\d/.test(String(t ?? ""));
+  const rangeBar = (part, texts) => { const t = texts.find(isRange); if (t !== undefined) warn(`${part}：値が範囲（${t}）。範囲しか分からない値は棒にしない（原稿にある1つの値で比べる形に替えるか、文字で言う）`); };
   const focusValue = (s, text, box, o = {}) => T(s, text, { fontSize: FOCUS_FS, bold: true, color: o.onFill ? C.white : o.problem ? C.accent : C.emph, valign: "middle", wrap: false, h: 0.5, ...box });
   // 部品が主役の値を自分で描くときの補助（2026-11-24）。呼ぶ側で値を空にして focusValue を手で置くと、隣の棒・値との重なりを部品が知らないので重なる
   //   focusTH：主役の値の1行の高さ。boxHit：2つの矩形 { x, y, w, h } が重なるか（pad だけ離れていないと重なりとみなす）
@@ -732,7 +735,7 @@ function createDeck(pres, opts = {}) {
       const col = def => footColor(type, { x: M, y: rowY, w: BW, h: 0.26 }, def);
       // テーマのロゴ（page のとき）：左下。表紙・区切りのページには出さない
       let tx = M;
-      if (LOGO && !plainFoot) { s.addImage({ path: LOGO, x: M, y: rowY + 0.13 - LOGO_BOX.h / 2, w: LOGO_BOX.w, h: LOGO_BOX.h }); tx = M + LOGO_BOX.w + 0.2; }
+      if (LOGO && !plainFoot) { s.addImage({ path: LOGO, altText: "ロゴ", x: M, y: rowY + 0.13 - LOGO_BOX.h / 2, w: LOGO_BOX.w, h: LOGO_BOX.h }); tx = M + LOGO_BOX.w + 0.2; }
       if (lined) { if (!MASTER[type] || !MASTER[type].drawn) hline(s, M, H - 0.52, BW); T(s, FOOT_TEXT, { x: tx, y: H - 0.44, w: BW - 1.2 - (tx - M), h: 0.26, fontSize: FS.note, color: col(C.gray), valign: "middle", wrap: false }); }
       if (NUM_ON) T(s, String(page), { x: W - M - 1, y: rowY, w: 1, h: 0.26, fontSize: FS.note, color: col(C.gray), align: "right", valign: "middle", wrap: false });
       if (CONF) { const cw = textW(CONF, FS.note) + 0.1, right = W - M - (NUM_ON ? textW(String(page), FS.note) + 0.3 : 0); T(s, CONF, { x: right - cw, y: rowY, w: cw, h: 0.26, fontSize: FS.note, bold: true, color: col(C.ink), align: "right", valign: "middle", wrap: false }); }
@@ -744,7 +747,7 @@ function createDeck(pres, opts = {}) {
     rect(s, 0, H - FH, W, FH, band);
     if (COPY) T(s, COPY, { x: 0.28, y: H - FH, w: 5, h: FH, fontSize: FS.note, color: onBand, valign: "middle", wrap: false });
     if (NUM_ON) T(s, String(page), { x: W / 2 - 0.5, y: H - FH, w: 1, h: FH, fontSize: 11, color: onBand, align: "center", valign: "middle" });
-    if (LOGO) s.addImage({ path: LOGO, x: W - 0.28 - LOGO_BOX.w, y: H - FH + (FH - LOGO_BOX.h) / 2, w: LOGO_BOX.w, h: LOGO_BOX.h });
+    if (LOGO) s.addImage({ path: LOGO, altText: "ロゴ", x: W - 0.28 - LOGO_BOX.w, y: H - FH + (FH - LOGO_BOX.h) / 2, w: LOGO_BOX.w, h: LOGO_BOX.h });
     if (CONF) { const cw = textW(CONF, FS.note) + 0.1, right = W - 0.28 - (LOGO ? LOGO_BOX.w + 0.25 : 0); T(s, CONF, { x: right - cw, y: H - FH, w: cw, h: FH, fontSize: FS.note, bold: true, color: onBand, align: "right", valign: "middle", wrap: false }); }
   };
 
@@ -932,12 +935,12 @@ function createDeck(pres, opts = {}) {
       if (lbx) {
         const b = fitBox(COVER.logo, lbx.w ?? 2.4, lbx.h ?? 0.6), bw = lbx.w ?? b.w;
         const x = (lbx.x ?? M) + (lbx.align === "right" ? bw - b.w : lbx.align === "center" ? (bw - b.w) / 2 : 0);
-        s.addImage({ path: COVER.logo, x, y: lbx.y ?? 0.5, w: b.w, h: b.h });
+        s.addImage({ path: COVER.logo, altText: "ロゴ", x, y: lbx.y ?? 0.5, w: b.w, h: b.h });
       } else {
         const pos = COVER.logoPos || "top-left", b = fitBox(COVER.logo, 2.4, 0.6);
         const x = pos === "top-right" ? W - M - b.w : pos === "center" ? (W - b.w) / 2 : M;
         const y = pos === "center" ? (full ? (o.kicker ? 1.95 : 2.45) : 2.6) - b.h - 0.1 : 0.5;
-        s.addImage({ path: COVER.logo, x, y, w: b.w, h: b.h });
+        s.addImage({ path: COVER.logo, altText: "ロゴ", x, y, w: b.w, h: b.h });
       }
     }
     footer(s, "cover");
@@ -1596,6 +1599,7 @@ function createDeck(pres, opts = {}) {
     const slot = (x1 - x0) / nC;
     const gap = o.gap ?? 0.08, bw = o.bw ?? Math.min(0.62, (slot * 0.62 - gap * (nS - 1)) / nS), gw = bw * nS + gap * (nS - 1);
     const fmt = o.fmt || (v => fmtNum(v, { plus: min < 0 }));
+    rangeBar("縦棒", all.map(v => fmt(v)));
     const focus = new Set((o.focus || []).map(([j, i]) => `${j}:${i}`));
     const barX = (j, i) => x0 + i * slot + (slot - gw) / 2 + j * (bw + gap);
     const barTop = (j, i) => { const v = ser[j].values[i]; return v >= 0 ? base - v * k : base; };
@@ -1668,6 +1672,7 @@ function createDeck(pres, opts = {}) {
     }
     chartPage();
     const rows = o.rows, vals = rows.filter(Boolean).map(r => r.value), fmt = o.fmt || (v => fmtNum(v, { plus: true }));
+    rangeBar("横棒", vals.map(v => fmt(v)));
     if (rows.filter(r => r && r.focusValue).length > 1) warn("横棒：主役の値（focusValue）は1行だけにする");
     // 主役の値（36pt）が入るよう、その側の値の列を広げる
     const fvW = side => Math.max(0, ...rows.filter(r => r && r.focusValue && (r.value >= 0) === side).map(r => textW(fmt(r.value), FOCUS_FS) + 0.14));
@@ -1763,8 +1768,9 @@ function createDeck(pres, opts = {}) {
   //   初見の聞き手には、仕組み（bizModel・processFlow・archDiagram）の前に、このページを置く
   //   o.name（名前。上に小さく）, o.statement（一言のコンセプト。価値を言う。全角30字まで）, o.key（statement の中で強調の色にする語。1つ）
   //   o.contrast（任意）：価値の差を、1本の物差しで比べる図。何と比べて、どれだけ違うかを一目で見せる
-  //     { ticks: [{ at, label }]（物差しの目盛り。at は 0〜1 の位置）, resultHead?（右端の列の見出し。例「鮮度」）, note?（物差しの説明。1行）,
-  //       rows: [{ name, to（0〜1。帯の長さ）, end?（帯の端の短い札）, result?（右端の値）, strong?（自社の行。1つだけ）, big?（自社の帯の横に大きく書く一語。例「当日に冷凍」） }] }
+  //     { min?（物差しの左端の値。既定 0）, max?（右端の値。既定は rows と ticks の最大）, ticks: [{ value, label }]（物差しの目盛り）, resultHead?, note?,
+  //       rows: [{ name, value（原稿にある値。帯の長さは部品が計算する）, end?（帯の端の短い札）, result?（右端の値）, strong?（自社の行。1つだけ）, big?（自社の帯の横に大きく書く一語。例「当日に冷凍」） }] }
+  //     原稿に無い値を value にしない。値が無い行・範囲しか分からない行（「100g未満」「120g以上」）は帯を描かない。そうなるなら contrast を渡さず、一文だけにする
   //   見る所は自社の行（strong）か statement。base の focus に書く
   const concept = (s, o) => {
     CONCEPT_DONE = true;
@@ -1793,7 +1799,24 @@ function createDeck(pres, opts = {}) {
     if (rows.filter(r => r.strong).length !== 1) warn("コンセプトの対比：自社の行（strong）を1つだけ決める");
     if (n !== 2) warn(`コンセプトの対比：比べるのは、相手1つと自社の2行だけ（${n} 行）。コンセプトは一点突破。相手を増やすと、何が突き抜けているかが薄まる`);
     if (rows.some(r => r.result !== undefined)) warn("コンセプトの対比：右端の結果の値（result）を足さない。2つ目の価値になる。伝える価値は1つだけ（物差しの差そのもの）");
-    (ct.ticks || []).forEach(tk => {
+    // 物差しの位置は、値から部品が計算する（割合 to・at を手で決めると、原稿に無い値が長さになる）
+    const isNum = v => typeof v === "number" && Number.isFinite(v);
+    const lo = ct.min ?? 0, hi = ct.max ?? Math.max(...rows.map(r => r.value).filter(isNum), ...(ct.ticks || []).map(t => t.value).filter(isNum));
+    const posOf = v => (v - lo) / (hi - lo);
+    const byValue = v => isNum(v) && isNum(hi) && hi > lo;
+    if (rows.some(r => r.to !== undefined)) warn("コンセプトの対比：帯の長さを to（割合）で書かない。原稿の値を value に書き、長さは部品に計算させる");
+    if ((ct.ticks || []).some(t => t.value === undefined)) warn("コンセプトの対比：目盛りの位置を at（割合）で書かない。目盛りの値を value に書く");
+    const lenOf = r => {
+      if ([r.value, r.big].some(isRange)) { rangeBar("コンセプトの対比", [r.value, r.big]); return null; }
+      if (byValue(r.value)) {
+        if (r.value < lo || r.value > hi) warn(`コンセプトの対比：「${r.name}」の値（${r.value}）が物差しの範囲（${lo}〜${hi}）の外`);
+        return Math.min(1, Math.max(0, posOf(r.value)));
+      }
+      if (isNum(r.to)) return r.to; // 前の書き方（上で知らせる）
+      warn(`コンセプトの対比：「${r.name}」の値（value）が無いので、帯を描かない。値の無い行があるなら contrast を渡さず、一文だけにする`);
+      return null;
+    };
+    (ct.ticks || []).map(tk => ({ ...tk, at: byValue(tk.value) ? posOf(tk.value) : tk.at })).filter(tk => isNum(tk.at)).forEach(tk => {
       s.addShape(SH.LINE, { x: X(tk.at), y: y0 - 0.35, w: 0, h: pitch * n - 0.1, line: { color: C.line, width: 1 } });
       T(s, tk.label, { x: X(tk.at) - 0.6, y: y0 - 0.72, w: 1.2, h: 0.3, fontSize: FS.note, color: C.soft, align: "center", valign: "middle", wrap: false });
     });
@@ -1801,8 +1824,9 @@ function createDeck(pres, opts = {}) {
     rows.forEach((r, i) => {
       const y = y0 + i * pitch, on = !!r.strong;
       T(s, r.name, { x: M, y, w: x0 - M - 0.2, h: bh, fontSize: on ? FS.head : FS.body, bold: on, color: on ? C.ink : C.soft, align: "right", valign: "middle", wrap: false });
-      rect(s, x0, y, Math.max(0.12, X(r.to) - x0), bh, on ? C.emph : C.bar);
-      if (on && r.big) focusValue(s, r.big, { x: Math.max(X(r.to), x0 + 0.12) + 0.15, y: y - 0.1, w: 4, h: 0.62 });
+      const len = lenOf(r);
+      if (len !== null) rect(s, x0, y, Math.max(0.12, X(len) - x0), bh, on ? C.emph : C.bar);
+      if (on && r.big) focusValue(s, r.big, { x: len === null ? x0 : Math.max(X(len), x0 + 0.12) + 0.15, y: y - 0.1, w: 4, h: 0.62 });
       if (r.result !== undefined) T(s, String(r.result), { x: x1 + 0.35, y: y - 0.1, w: 1.6, h: 0.62, fontSize: on ? 36 : 22, bold: true, color: on ? C.emph : C.gray, valign: "middle", wrap: false });
     });
     return { rowY: i => y0 + i * pitch, X };
@@ -3260,7 +3284,7 @@ function createDeck(pres, opts = {}) {
   const ICON_TINT = (() => { try { return JSON.parse(fs.readFileSync(path.join(ICON_DIR, ".tint.json"), "utf8")); } catch (e) { return null; } })();
   let lineIconUsed = false;
   // アイコンを置く。tone で色ちがいを選ぶ: "w"＝白（色を塗った丸の上）、"e"＝強調の色、"r"＝問題の色。その色の画像（<名前>-<tone>.png）が無ければ、元の色で置く
-  const icon = (s, name0, cx, cy, d = 0.4, tone) => { const name = tone && findIcon(`${ICON_ALIAS[name0] || name0}-${tone}`) ? `${ICON_ALIAS[name0] || name0}-${tone}` : name0; const p = iconPath(name); if (isLineIcon(name) && !isUserIcon(p)) lineIconUsed = true; if (p) { s.addImage({ path: p, x: cx - d / 2, y: cy - d / 2, w: d, h: d }); (ICONS_ON[page] = ICONS_ON[page] || {})[ICON_ALIAS[name] || name] = 1; } return !!p; };
+  const icon = (s, name0, cx, cy, d = 0.4, tone) => { const name = tone && findIcon(`${ICON_ALIAS[name0] || name0}-${tone}`) ? `${ICON_ALIAS[name0] || name0}-${tone}` : name0; const p = iconPath(name); if (isLineIcon(name) && !isUserIcon(p)) lineIconUsed = true; if (p) { s.addImage({ path: p, altText: `アイコン：${path.basename(String(name0), ".png")}`, x: cx - d / 2, y: cy - d / 2, w: d, h: d }); (ICONS_ON[page] = ICONS_ON[page] || {})[ICON_ALIAS[name] || name] = 1; } return !!p; };
 
   // 2軸の図の名前の置き場を決める補助：矩形どうしの重なりの面積（矩形は [x, y, w, h]）
   const mxRectHit = (a, b) => Math.max(0, Math.min(a[0] + a[2], b[0] + b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[1] + a[3], b[1] + b[3]) - Math.max(a[1], b[1]));
@@ -4413,6 +4437,20 @@ function createDeck(pres, opts = {}) {
     return fn(...args);
   };
 
+  // 画像の代替テキスト（descr）がファイルの場所になっていないか。pptxgenjs は altText が無いと画像のパス（ユーザー名を含む）を入れる
+  const isFilePath = v => /^(\/|~[\/\\]|[A-Za-z]:[\/\\]|\\\\|file:)/.test(v) || (/[\/\\]/.test(v) && /\.(png|jpe?g|gif|svg|bmp|webp|tiff?|emf|wmf)$/i.test(v));
+  const scrubDescr = async zip => {
+    const hits = {};
+    for (const n of Object.keys(zip.files).filter(n => /^ppt\/(slides|slideLayouts|slideMasters|notesSlides)\/[^/]+\.xml$/.test(n))) {
+      const xml = await zip.file(n).async("string");
+      const out = xml.replace(/ descr="([^"]*)"/g, (m, v) => { if (!isFilePath(v)) return m; hits[n] = (hits[n] || 0) + 1; return ' descr=""'; });
+      if (out !== xml) zip.file(n, out);
+    }
+    Object.entries(hits).forEach(([n, k]) => {
+      const slide = n.match(/^ppt\/slides\/slide(\d+)\.xml$/);
+      console.warn(`[deck-parts] ${slide ? `P.${slide[1]}` : n} の画像の代替テキストが、ファイルの場所になっていた（${k} 件）。空にして書き出した。build.js の addImage に、画像が何かの短い説明を altText で書く`);
+    });
+  };
   const finalize = async outPath => {
     LATER.forEach(fn => fn());
     // 聞き手の前提：宣言していなければ知らせる（2026-11-25）
@@ -4456,6 +4494,7 @@ function createDeck(pres, opts = {}) {
       if (!target) { console.warn(`[deck-parts] P.${p.slide} のグラフが見つからない（強調を入れられない）`); continue; }
       zip.file(`ppt/charts/${target}`, patchChartXml(await zip.file(`ppt/charts/${target}`).async("string"), p));
     }
+    await scrubDescr(zip);
     fs.writeFileSync(outPath, await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }));
     console.log("written", outPath, `(${page} pages)`);
     return outPath;

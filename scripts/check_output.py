@@ -61,6 +61,12 @@ def same_part(name, a, b):
     return all(abs(int(p[1]) - int(q[1])) <= EMU_TOLERANCE for p, q in zip(POSITION.findall(a), POSITION.findall(b)))
 
 
+def path_descr(pptx):
+    """画像の代替テキストに、作った PC のファイルの場所が入っていないか（比べるときは descr を無視するので、別に見る）。"""
+    with zipfile.ZipFile(pptx) as z:
+        return sorted(n for n in z.namelist() if n.endswith(".xml") and re.search(rb' descr="(/|[A-Za-z]:\\|~/|file:)', z.read(n)))
+
+
 def differences(before, after):
     with zipfile.ZipFile(before) as za, zipfile.ZipFile(after) as zb:
         na, nb = set(za.namelist()), set(zb.namelist())
@@ -121,6 +127,10 @@ def main():
             broken.append(name)
             print(f"× {name}: 作れない\n{results['after'][2][-1500:]}")
             continue
+        leaked = path_descr(sides["after"] / "out" / f"{name}.pptx")
+        if leaked:
+            broken.append(f"{name}: 代替テキストにファイルの場所")
+            print(f"× {name}: 代替テキストにファイルの場所が入っている（{', '.join(leaked[:4])}）")
         if results["before"] is None or not results["before"][0]:
             changed.append(name)
             print(f"? {name}: 元の版では作れないので比べられない（警告 {results['after'][1]}件）")

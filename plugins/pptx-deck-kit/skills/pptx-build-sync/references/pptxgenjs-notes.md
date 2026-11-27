@@ -15,6 +15,8 @@ pptxgenjs 4.0.1 で確認した内容。
 - 注記は `slide.addNotes("...")`。
 - **日本語の禁則が効かない。** pptxgenjs は文字に `lang="en-US"` を書くため、PowerPoint で行頭に「、」「）」が来る。書き出し後に全スライドの XML で `lang="en-US"` を `lang="ja-JP"` に置き換える（`pptx-deck-design` の `assets/deck-parts.js` の `finalize` に実装済み）。
 
+- 画像（`addImage`、`defineSlideMaster` の `image`）には、必ず `altText`（何の画像かの短い文）を書く。省くと pptxgenjs が画像ファイルの絶対パス（ユーザー名を含む）を代替テキストに入れる。空文字 `""` も同じ扱いになる。`deck-parts.js` の `finalize` は残ったパスを空にして警告する。`finalize` を使わない build.js は、書き出し後に `unzip -p <pptx> 'ppt/slides/*.xml' 'ppt/slideLayouts/*.xml' | grep -o 'descr="[^"]*[/\\][^"]*"'` で確かめる
+
 ## グラフ
 
 - `addChart(pres.charts.BAR, series, opts)`。積み上げは `barGrouping: "stacked"`。軸の上限は `valAxisMaxVal` / `valAxisMinVal` / `valAxisMajorUnit`。

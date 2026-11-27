@@ -39,10 +39,10 @@ d.agendaPage();
     statement: "稟議の承認が、当日。",
     key: "当日",
     contrast: {
-      ticks: [{ at: 0, label: "申請" }, { at: 1 / 3, label: "1日" }, { at: 2 / 3, label: "2日" }, { at: 1, label: "3日" }],
+      ticks: [{ value: 0, label: "申請" }, { value: 1, label: "1日" }, { value: 2, label: "2日" }, { value: 3, label: "3日" }],
       rows: [
-        { name: "今の紙の稟議", to: 1 },
-        { name: "新しい仕組み", to: 0.12, big: "当日に承認", strong: true },
+        { name: "今の紙の稟議", value: 3 },
+        { name: "新しい仕組み", value: 0, big: "当日に承認", strong: true }, // 当日＝0日後（帯は最小の幅）
       ],
     },
   });
