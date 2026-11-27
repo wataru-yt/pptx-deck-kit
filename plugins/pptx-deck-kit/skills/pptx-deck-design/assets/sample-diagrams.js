@@ -52,7 +52,7 @@ d.agendaPage();
 // 名前は点の真下、近いものは段をずらして細い引出線。自社だけ濃紺・太字（見る所）。会社と制度の変更は行を分ける
 d.setChapter(1);
 {
-  const s = d.base(null, "当社の電子化は同業で7社目、大手の3社より7年遅い。", { focus: "当社の点（2026年10月）" });
+  const s = d.base(null, "当社の購買の電子化は同業で7社目で、大手の3社より7年遅い。", { ask: "大手はいつ始めた？ → 図の2019年", focus: "当社の点（2026年10月）" });
   const r = d.eventTimeline(s, {
     from: "2019.01", to: "2026.12",
     levels: 2,
@@ -78,7 +78,7 @@ d.setChapter(1);
 // 塗りの色を増やさず、枠・破線・文字の濃さで3つの状態を描き分ける。凡例は右上に細い枠の見本だけ
 d.setChapter(2);
 {
-  const s = d.base(null, "企画から試行までで、14項目を新たに身につけた。", { focus: "濃い枠の箱（今回身についた14項目）" });
+  const s = d.base(null, "企画から試行までで、14項目を新たに身につけた。", { ask: "何の14項目？ → 図の濃い枠の箱", focus: "濃い枠の箱（今回身についた14項目）" });
   const N = t => ({ text: t, state: "new" }), E = t => ({ text: t, state: "tried" }), B = t => ({ text: t, state: "base" });
   d.stateMap(s, {
     itemH: 0.46, itemGap: 0.07,
@@ -110,7 +110,7 @@ const ROAD = {
 };
 const road = d.series(s => d.roadmap(s, ROAD), { check: CHECK });
 d.setChapter(3);
-road.page({ lead: "4月に12部署へ広げ、確認の待ちを全社で約1日にする。", focus: "全社展開の駅（2027年4月〜）" });
+road.page({ lead: "4月に新しい仕組みを12部署へ広げ、確認の待ちを全社で約1日にする。", ask: "本当に約1日にできる？ → 図の試行の実績（約1日）", focus: "全社展開の駅（2027年4月〜）" });
 
 // ===== 4. 決裁のお願い：同じ段階の道を背面に敷き、決めてもらう段階だけ残す =====
 // 前面の messageBox で決めていただくことを1件だけ言い、決める額を focusValue で大きく書く。2件以上なら、同じ図でページを分ける
@@ -121,7 +121,7 @@ d.setChapter(4);
     const x0 = r.X(2) - r.CW / 2 + 0.08, x1 = r.X(3) + r.CW / 2 - 0.08;
     return { x: x0, y: r.K0, w: x1 - x0, h: 3 * r.KP - 0.07, head: "全社展開の承認", body: "4月に12部署で始め、担当を1人増やす。" };
   };
-  const { s, r } = road.page({ lead: "4月からの全社展開と、費用480万円の承認をお願いしたい。", focus: "決める額（480万円）", spot: rr => rr.col(1), box });
+  const { s, r } = road.page({ lead: "4月からの全社展開と、費用480万円の承認をお願いしたい。", ask: "何に使う？ → 吹き出し（12部署で開始、担当を1人増員）", focus: "決める額（480万円）", spot: rr => rr.col(1), box });
   if (!CHECK) { const b = box(r); d.focusValue(s, "480万円", { x: b.x + b.w - 2.3, y: b.y + 0.06, w: 2.2, align: "right" }); }
 }
 

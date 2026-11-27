@@ -10,7 +10,7 @@
 //   const d = createDeck(pres, { nav: [{ name: "概要", ch: 1 }, { name: "反省", ch: 2 }] });
 //   d.cover({ title: "資料名", date: "2026年11月" });
 //   d.chapter("1.", "章題");
-//   const s = d.base("テーマ", "このページの結論を言い切る。", { focus: "見る所" });
+//   const s = d.base("テーマ", "このページの結論を言い切る。", { focus: "見る所", ask: "聴講者の疑問 → 答えの場所" });
 //   d.blockTable(s, { cols: [...], rows: [...] });
 //   d.finalize("out.pptx");
 //
@@ -798,6 +798,10 @@ function createDeck(pres, opts = {}) {
   const PREVIEW = /について(ご)?(説明|紹介|解説|述べ|お話)|を(ご)?(説明|紹介|解説)(します|いたします)|見ていき|見ていく|見てみ(ます|ましょう)/;
   const HEDGE = /と思われ|かもしれ|可能性があ|と考えられ|ではないか|ではないでしょうか/;
   const VAGUE = /大幅|多くの|一定の|さまざま|様々/;
+  // 比喩・抽象語（例。ここに無い比喩は、聴講者の疑問の欄で見つける）。「必要」「重要」「要る」「要否」には当てない
+  const METAPHOR = /足場|土台|武器|勝ち筋|突破口|追い風|向かい風|伸びしろ|起爆剤|切り札|カギ(?!括弧|かっこ)|鍵を握|(成功|成長|勝負|勝ち|解決|普及|拡大|定着|差別化|改善|競争|攻略)の鍵|が鍵(?=だ|です|となる|になる|。)|かなめ(?=だ|です|となる|になる|。)|[のが]要(?=だ|です|となる|になる|。)/;
+  // 否定で結ぶ文：何が言えるかが、聴講者に残らない
+  const NEGATIVE = /(ではない|でない|じゃない|でもない|ではなかった|ではありません|でもありません|とは(言|い)え(ない|ません)|とは限(らない|りません))$/;
   // 数字の取り出し：全角と半角、桁区切りのカンマ、末尾の .0 をそろえる
   const numsOf = t => (String(t).normalize("NFKC").replace(/(\d),(?=\d{3})/g, "$1").match(/\d+(\.\d+)?/g) || []).map(v => String(Number(v)));
   // 図に描いた文字（リードの数字と照合する）：addText・addTable・addChart の引数から取り出す
@@ -808,7 +812,7 @@ function createDeck(pres, opts = {}) {
     const data = Array.isArray(a[0]) ? a[0].flatMap(x => (x && x.data) || []) : a[1] || [];
     return data.flatMap(d => [d.name, ...(d.labels || []).flat(), ...(d.values || []).flatMap(v => (Math.abs(v) <= 1 ? [v, Math.round(v * 1000) / 10] : [v]))]).map(v => String(v ?? ""));
   };
-  const LEADS = []; // { page, title, lead, fig }。一覧（.leads.md）と、数字の照合に使う
+  const LEADS = []; // { page, title, lead, ask, fig }。一覧（.leads.md）と、数字の照合に使う
   // 図の中の文・メッセージボックス・表の文：リードと同じ一覧で、縮められる言い回しを知らせる（同じ文は1回だけ。題とリードは checkLead が見る）
   const HEAD_TEXT = new Set(), WORD_SEEN = new Set();
   wordHook = text => {
@@ -829,6 +833,9 @@ function createDeck(pres, opts = {}) {
     const flat = t.replace(/\n/g, "").trim(), len = [...flat].length;
     if (len > LEAD_MAX) warn(`リードが長い（${len}字。2行・${LEAD_MAX}字まで）：「${flat.slice(0, 18)}…」。言うことを1つに絞る（短く言えるなら、短いほどよい）`);
     if (!flat.endsWith("。")) warn(`リードが「。」で終わっていない（「…${flat.slice(-12)}」）。結論を文で言い切る`);
+    flat.split("。").forEach(x => {
+      if (NEGATIVE.test(x.replace(/（[^（）]*）|\([^()]*\)/g, "").replace(/[」』】）)"”]+$/, ""))) warn(`リードが否定で終わる（「…${x.slice(-14)}」）。何が言えるかを肯定で書く（例：高すぎる値段ではない → 450円の価格受容性は裏づけられた）`);
+    });
     flat.split("。").slice(0, -1).forEach(x => {
       const tail = x.replace(/（[^（）]*）|\([^()]*\)/g, "").replace(/[」』】）)"”]+$/, "").slice(-1);
       if (/[\p{Script=Han}\p{Script=Katakana}々ー]/u.test(tail)) warn(`リードが体言止め（「…${x.slice(-12)}。」）。「〜だ」「〜する」まで書いて文にする（図の中の札は体言止めでよい）`);
@@ -837,6 +844,7 @@ function createDeck(pres, opts = {}) {
     if ((w = flat.match(PREVIEW))) warn(`リードが予告になっている（「${w[0]}」）。何を話すかではなく、結論を書く`);
     if ((w = flat.match(HEDGE))) warn(`リードがぼかしている（「${w[0]}」）。言い切る（言い切れないなら、何が分かれば言えるかを書く）`);
     if ((w = flat.match(VAGUE))) warn(`リードの「${w[0]}」は、数字で書く`);
+    if ((w = flat.match(METAPHOR))) warn(`リードの「${w[0]}」は比喩・抽象語。何を・どうするで書く（例：足場が要る → 個食への参入が必要だ）`);
   };
   const base = (title, lead, o = {}) => {
     const navNow = NAV && chapterNow ? NAV.find(n => n.ch === chapterNow || (n.subs || []).includes(chapterNow)) : null;
@@ -847,7 +855,7 @@ function createDeck(pres, opts = {}) {
     track(s, o);
     FOCUS.push({ page, title, focus: o.focus });
     const fig = [];
-    LEADS.push({ page, title, lead: lead ? String(lead) : "", fig });
+    LEADS.push({ page, title, lead: lead ? String(lead) : "", ask: [].concat(o.ask || []).join(" ／ "), fig });
     // 題・リード・フッター・ナビを除いた、図の文字を控える
     ["addText", "addTable", "addChart"].forEach(m => { const f = s[m].bind(s); s[m] = (...a) => { if (!inChrome && !inFooter) fig.push(...figTexts(m, a)); return f(...a); }; });
     if (title && o.focus === undefined) warn("見る所の宣言がない（base の o.focus に、持ち帰る1つ（最初に目が行くべき要素）を書く。false は、リードが主張を言わないページだけ）");
@@ -1416,7 +1424,7 @@ function createDeck(pres, opts = {}) {
   const series = (drawFig, so = {}) => {
     let n = 0;
     const one = p => {
-      const s = base(p.title, p.lead, { key: p.key, section: p.section, focus: p.focus });
+      const s = base(p.title, p.lead, { key: p.key, section: p.section, focus: p.focus, ask: p.ask });
       const first = n++ === 0, front = p.spot || p.only || p.keep || p.box;
       if (p.plain || (first && !front)) return { s, r: drawFig(s, {}) };
       const keep = p.keep ? (s2, r2) => p.keep(s2, r2) : p.only ? s2 => drawFig(s2, { only: p.only }) : undefined;
@@ -4591,6 +4599,9 @@ function createDeck(pres, opts = {}) {
       const missing = [...new Set(numsOf(text))].filter(v => !inFig.has(v) && !(tens.has(v) && inFig.has(String(Number(v) * 10))));
       if (missing.length) console.warn(`[deck-parts] P.${l.page} リードの数字（${missing.join("、")}）が、このページの図に無い。図に同じ値を同じ書き方で示すか、リードから外す`);
     });
+    // 聴講者が持ちうる疑問：リードのある全ページで、問いと答えの場所を書いてから点検する（画面には出さない）
+    const noAsk = LEADS.filter(l => l.lead && !l.ask).map(l => l.page);
+    if (noAsk.length) console.warn(`[deck-parts] 聴講者が持ちうる疑問（base の o.ask）が空のページ：${noAsk.map(p => `P.${p}`).join("、")}。聴講者として「何を？どれ？どうする？どれくらい？」と問い、答えがリードか同じページの図にあるかを書く（無ければリードを直す）`);
     // 外部の製品・会社：図の中に名前があるのに、そのページにアイコンが無ければ知らせる
     Object.keys(BRANDS_ON).forEach(pg => Object.keys(BRANDS_ON[pg]).forEach(k => { if (!(ICONS_ON[pg] || {})[k]) console.warn(`[deck-parts] P.${pg} 外部の製品・会社（${k}）を図に出しているが、アイコンが無い。公式のアイコンを取得して icons/ に置き、名前の横に置く（scripts/fetch_icon.py）`); }));
     // 線の絵の色：資料の色の組（文字の色・強調の色）で塗ってあるかを確かめる
@@ -4599,7 +4610,7 @@ function createDeck(pres, opts = {}) {
     // 見る所の一覧：点検で、画像を見て最初に目が行った所と引き比べる（review-checklist）
     if (opts.focusList !== false) fs.writeFileSync(String(outPath).replace(/\.pptx$/i, "") + ".focus.md", "# 見る所の一覧\n\n画像だけを見て「最初に目が行く所」を答え、下の宣言と合うかを確かめる。合わないページは、強調を直す。\n\n| ページ | タイトル | 見る所（宣言） |\n|---|---|---|\n" + FOCUS.filter(f => f.title).map(f => `| ${f.page} | ${f.title} | ${f.focus === false ? "（列挙。見る所なし）" : f.focus ?? "（宣言なし）"} |`).join("\n") + "\n");
     // リードの一覧：リードだけを通して読み、話が通るかを確かめる（review-checklist）
-    if (opts.leadList !== false) { const cell = v => String(v || "—").replace(/\n/g, "").replace(/\|/g, "｜"); fs.writeFileSync(String(outPath).replace(/\.pptx$/i, "") + ".leads.md", "# リードの一覧\n\nリードだけを上から順に読み、話が通るかを確かめる。2文目があるページは、足したのが判断か次の行動の1つだけで、蛇足でないかを確かめる。\n\n| ページ | タイトル | リード |\n|---|---|---|\n" + LEADS.filter(l => l.title || l.lead).map(l => `| ${l.page} | ${cell(l.title)} | ${cell(l.lead)} |`).join("\n") + "\n"); }
+    if (opts.leadList !== false) { const cell = v => String(v || "—").replace(/\n/g, "").replace(/\|/g, "｜"); fs.writeFileSync(String(outPath).replace(/\.pptx$/i, "") + ".leads.md", "# リードの一覧\n\nリードだけを上から順に読み、話が通るかを確かめる。2文目があるページは、足したのが判断か次の行動の1つだけで、蛇足でないかを確かめる。疑問の欄は、聴講者として「何を？どれ？どうする？どれくらい？」と問い、答えがリードか同じページの図にあるかを確かめる。無ければリードを直す。\n\n| ページ | タイトル | リード | 聴講者が持ちうる疑問 |\n|---|---|---|---|\n" + LEADS.filter(l => l.title || l.lead).map(l => `| ${l.page} | ${cell(l.title)} | ${cell(l.lead)} | ${l.lead ? l.ask ? cell(l.ask) : "（未記入）" : "—"} |`).join("\n") + "\n"); }
     // ナビゲーションは、テーマの nav か opts.miniNav: true のときだけ描く（章立て nav は、アジェンダとタイトルに使う。現在地はタイトルで分かる）
     if (NAV && opts.miniNav !== false) {
       const baseT = TH.nav || {}, baseStyle = NAV_STYLE, layouts = {};

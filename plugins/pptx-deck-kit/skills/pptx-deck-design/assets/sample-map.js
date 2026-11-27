@@ -65,13 +65,13 @@ const MAP = {
 // 円の大きさの意味は、図の左上の見出しに書く（右に凡例の欄を作らない）
 const pos = d.series((s, x) => { d.figHead(s, "円の大きさ＝利用企業数"); return d.matrix2x2(s, { ...MAP, ...x }); }, { check: CHECK });
 {
-  const { s, r } = pos.page({ lead: "試作版の当社（12社）は、右上の空白地帯を狙う。", focus: "当社の点（12社）と右上への矢印" });
+  const { s, r } = pos.page({ lead: "利用12社の当社は、他社がいない「業務を任せられて当日使える」製品を狙う。", ask: "本当に他社がいない？ → 図の右上の空白地帯", focus: "当社の点（12社）と右上への矢印" });
   const [px, py] = r.pt(7);
   d.focusValue(s, "12社", { x: px - 1.0, y: py - 0.68, w: 1.4, align: "center" });
 }
 {
   const { s, r } = pos.page({
-    lead: "業務まで任せられる3社は、導入に3か月以上かかる。", focus: "左上の象限の3社（A社・D社・G社）",
+    lead: "業務まで任せられる3社は、導入に3か月以上かかる。", ask: "どの3社？ → 図の左上（A社・D社・G社）", focus: "左上の象限の3社（A社・D社・G社）",
     spot: r => r.quad(0),
     // 箱は左下の象限の空き（F社の右）に置き、引き出し線は垂直に D社の円の下を指す
     box: r => { const [dx, dy] = r.pt(3), dr = r.d(3) / 2, y = r.py(0.42); return { x: dx - 0.4, y, w: 3.0, h: 1.1, head: "手順の登録が要る", body: "業務ごとに登録する。", from: [dx, y], to: [dx, dy + dr + 0.04] }; },
@@ -95,9 +95,9 @@ const drawFunnel = (s, x) => {
   return r;
 };
 const fun = d.series(drawFunnel, { check: CHECK });
-fun.page({ lead: "最も離れるのは2週目で、480人のうち270人が使わなくなる。", focus: "2週目の手前で離れる人数（−270人）と率（44%）" });
+fun.page({ lead: "最も離れるのは2週目で、480人のうち270人が使わなくなる。", ask: "何人が残る？ → 図の2週目利用 210人", focus: "2週目の手前で離れる人数（−270人）と率（44%）" });
 fun.page({
-  lead: "離れた理由は、回答の根拠が示されないことだ。", focus: "2週目の手前で離れる人数（−270人）",
+  lead: "離れた理由は、回答の根拠が示されないことだ。", ask: "根拠が無いと何が困る？ → 吹き出し（確認し直す手間）", focus: "2週目の手前で離れる人数（−270人）",
   // 見る所：離れる段の前後（段・人数・率）と、見る所の値だけを元の濃さで残す
   spot: r => { const a = r.band(2), b = r.band(3), c = r.cell(0, 2); return { x: 0.6, y: a.y - 0.14, w: c.x - 0.25 - 0.6, h: b.y + b.h - a.y + 0.28 }; },
   // 箱は、離れる段の定義のセル2つ（薄くしたもの）をちょうど覆い、引き出し線は水平に率の赤枠を指す
@@ -146,9 +146,9 @@ const ARCH = {
   ],
 };
 const arch = d.series((s, x) => d.archDiagram(s, { ...ARCH, ...x }), { check: CHECK });
-arch.page({ lead: "社員と開発者は、1つの入口を通して3つのAIを使う。", focus: "AIの入口のノード（強調の枠）" });
+arch.page({ lead: "社員と開発者は、1つの入口を通して3つのAIを使う。", ask: "どのAI？ → 図の外部のAI", focus: "AIの入口のノード（強調の枠）" });
 arch.page({
-  lead: "共有フォルダの文書は毎晩取り込み、回答の根拠にする。", focus: "文書の取り込みのノード",
+  lead: "共有フォルダの文書は毎晩取り込み、回答の根拠にする。", ask: "権限の無い文書は？ → 吹き出し（権限つきで取り込む）", focus: "文書の取り込みのノード",
   only: ["ingest"],
   // 箱は図の下の空きに置き、引き出し線は垂直に取り込みのノードの名前の下を指す
   box: r => { const n = r.node("ingest"), y = n.bottom + 0.1; return { x: n.cx - 2.5, y, w: 5.0, h: 0.55, head: "更新分を権限つきで取り込む", from: [n.cx, y], to: [n.cx, n.bottom + 0.03] }; },
