@@ -10,7 +10,7 @@
 //   const d = createDeck(pres, { nav: [{ name: "概要", ch: 1 }, { name: "反省", ch: 2 }] });
 //   d.cover({ title: "資料名", date: "2026年11月" });
 //   d.chapter("1.", "章題");
-//   const s = d.base("テーマ", "このページの主張を1文で。2文目は根拠か条件だけ。", { focus: "見る所" });
+//   const s = d.base("テーマ", "このページの結論を言い切る。", { focus: "見る所" });
 //   d.blockTable(s, { cols: [...], rows: [...] });
 //   d.finalize("out.pptx");
 //
@@ -770,7 +770,7 @@ function createDeck(pres, opts = {}) {
     if (ACTION) { if (lineCount(t, 20, BW) > 2) warn(`題が2行を超える（${t}）。結論を1文に縮める`); return; }
     if (textW(t, fs0) > w) warn(`タイトルが1行に収まらない（${t}）。冗長な語尾を削る`);
     if (/。$/.test(t)) warn(`タイトルが文になっている（${t}）。結論の文はリードに置く`);
-    // タイトルは「いまどの話か」の項目名だけ。主張はリードの1文に書く（同じことを、タイトルとリードで2回言わない）
+    // タイトルは「いまどの話か」の項目名だけ。主張はリードに書く（同じことを、タイトルとリードで2回言わない）
     if (/[：:、]/.test(t)) warn(`タイトルに要点が入っている（${t}）。タイトルは項目名だけにし、主張はリードに書く`);
     else if (em(t) > 14) warn(`タイトルが長い（${t}）。項目名は全角14字まで`);
   };
@@ -783,7 +783,7 @@ function createDeck(pres, opts = {}) {
     return s;
   };
 
-  // 標準ページ：タイトル・リード・フッター（2.1）。lead は結論を2文まで。o.key＝ページの名前、o.nav:false でミニ目次を外す
+  // 標準ページ：タイトル・リード・フッター（2.1）。lead は結論（1ページ1メッセージ、2行・70字まで）。o.key＝ページの名前、o.nav:false でミニ目次を外す
   // リードの言い回しの点検：冗長な文を、短く言い切る文に直す
   //   熟語で縮められる言い回し（[見つける形, 直し方]）。opts.wordy で足す・替える。false で点検しない
   const WORDY = opts.wordy === false ? [] : [
@@ -793,6 +793,22 @@ function createDeck(pres, opts = {}) {
     ...(opts.wordy || []),
   ];
   const OPENERS = /^(対象|ターゲット|課題|問題|解決策|目的|概要|結論|ポイント|ここで|このページで)は、?/;
+  // リードは結論を言い切る文（2026-11-27）：予告、ぼかし、数字にできる言葉、体言止めを知らせる。長さは全体で LEAD_MAX 字まで（上限であって目標ではない）
+  const LEAD_MAX = 70;
+  const PREVIEW = /について(ご)?(説明|紹介|解説|述べ|お話)|を(ご)?(説明|紹介|解説)(します|いたします)|見ていき|見ていく|見てみ(ます|ましょう)/;
+  const HEDGE = /と思われ|かもしれ|可能性があ|と考えられ|ではないか|ではないでしょうか/;
+  const VAGUE = /大幅|多くの|一定の|さまざま|様々/;
+  // 数字の取り出し：全角と半角、桁区切りのカンマ、末尾の .0 をそろえる
+  const numsOf = t => (String(t).normalize("NFKC").replace(/(\d),(?=\d{3})/g, "$1").match(/\d+(\.\d+)?/g) || []).map(v => String(Number(v)));
+  // 図に描いた文字（リードの数字と照合する）：addText・addTable・addChart の引数から取り出す
+  const figTexts = (method, a) => {
+    const join = t => Array.isArray(t) ? t.map(r => (r && typeof r === "object" ? join(r.text ?? "") + (r.options && r.options.breakLine ? "\n" : "") : String(r ?? ""))).join("") : String(t ?? "");
+    if (method === "addText") return [join(a[0])];
+    if (method === "addTable") return (a[0] || []).flatMap(row => (row || []).map(c => join(c && typeof c === "object" && !Array.isArray(c) ? c.text ?? "" : c)));
+    const data = Array.isArray(a[0]) ? a[0].flatMap(x => (x && x.data) || []) : a[1] || [];
+    return data.flatMap(d => [d.name, ...(d.labels || []).flat(), ...(d.values || []).flatMap(v => (Math.abs(v) <= 1 ? [v, Math.round(v * 1000) / 10] : [v]))]).map(v => String(v ?? ""));
+  };
+  const LEADS = []; // { page, title, lead, fig }。一覧（.leads.md）と、数字の照合に使う
   // 図の中の文・メッセージボックス・表の文：リードと同じ一覧で、縮められる言い回しを知らせる（同じ文は1回だけ。題とリードは checkLead が見る）
   const HEAD_TEXT = new Set(), WORD_SEEN = new Set();
   wordHook = text => {
@@ -810,7 +826,17 @@ function createDeck(pres, opts = {}) {
     if (m) warn(`リードの書き出し（${m[0]}）は、タイトルで分かるので要らない。中身から書き出す`);
     else if (title && t.startsWith(String(title))) warn(`リードが、タイトルと同じ言葉（${title}）で始まっている。タイトルで分かることを言い直さない`);
     WORDY.forEach(([re, to]) => { const w = t.match(re); if (w) warn(`リードの言い回しを縮める（「${w[0]}」→ ${to}）`); });
-    t.split("。").filter(x => x.trim()).forEach(x => { if (em(x) > 40) warn(`リードの1文が長い（全角${Math.round(em(x))}字。40字まで）：「${x.slice(0, 18)}…」。熟語で縮めるか、言うことを減らす`); });
+    const flat = t.replace(/\n/g, "").trim(), len = [...flat].length;
+    if (len > LEAD_MAX) warn(`リードが長い（${len}字。2行・${LEAD_MAX}字まで）：「${flat.slice(0, 18)}…」。言うことを1つに絞る（短く言えるなら、短いほどよい）`);
+    if (!flat.endsWith("。")) warn(`リードが「。」で終わっていない（「…${flat.slice(-12)}」）。結論を文で言い切る`);
+    flat.split("。").slice(0, -1).forEach(x => {
+      const tail = x.replace(/（[^（）]*）|\([^()]*\)/g, "").replace(/[」』】）)"”]+$/, "").slice(-1);
+      if (/[\p{Script=Han}\p{Script=Katakana}々ー]/u.test(tail)) warn(`リードが体言止め（「…${x.slice(-12)}。」）。「〜だ」「〜する」まで書いて文にする（図の中の札は体言止めでよい）`);
+    });
+    let w;
+    if ((w = flat.match(PREVIEW))) warn(`リードが予告になっている（「${w[0]}」）。何を話すかではなく、結論を書く`);
+    if ((w = flat.match(HEDGE))) warn(`リードがぼかしている（「${w[0]}」）。言い切る（言い切れないなら、何が分かれば言えるかを書く）`);
+    if ((w = flat.match(VAGUE))) warn(`リードの「${w[0]}」は、数字で書く`);
   };
   const base = (title, lead, o = {}) => {
     const navNow = NAV && chapterNow ? NAV.find(n => n.ch === chapterNow || (n.subs || []).includes(chapterNow)) : null;
@@ -820,6 +846,10 @@ function createDeck(pres, opts = {}) {
     const s = newSlide("content");
     track(s, o);
     FOCUS.push({ page, title, focus: o.focus });
+    const fig = [];
+    LEADS.push({ page, title, lead: lead ? String(lead) : "", fig });
+    // 題・リード・フッター・ナビを除いた、図の文字を控える
+    ["addText", "addTable", "addChart"].forEach(m => { const f = s[m].bind(s); s[m] = (...a) => { if (!inChrome && !inFooter) fig.push(...figTexts(m, a)); return f(...a); }; });
     if (title && o.focus === undefined) warn("見る所の宣言がない（base の o.focus に、持ち帰る1つ（最初に目が行くべき要素）を書く。false は、リードが主張を言わないページだけ）");
     if (o.focus === false && lead && !/付録|参考|一覧|目次|アジェンダ/.test(String(title || ""))) warn("主張を言うリードがあるのに、見る所がない（focus: false）。持ち帰る1つ（語か数値）を決めて、それがいちばん大きく見える形にする");
     if (title) HEAD_TEXT.add(String(title));
@@ -845,7 +875,7 @@ function createDeck(pres, opts = {}) {
     if (lead) {
       const t = leadBreak(lead, lb.size, lb.w);
       const n = lineCount(t, lb.size, lb.w * 0.99);
-      if (n > 2) warn(`リードが${n}行になる。図を動かさず文を縮める（2.1）`);
+      if (n > 2) warn(`リードが${n}行になる（2行まで）。図を動かさず文を縮める（2.1）`);
       checkReadable("content", "lead", lb, lb.color, t.split("\n")[0], lb.size);
       T(s, t, { ...boxText(lb), lineSpacingMultiple: 1.2 });
     }
@@ -4552,6 +4582,15 @@ function createDeck(pres, opts = {}) {
     if (!AGENDA_DONE && page >= 8) console.warn(`[deck-parts] アジェンダのページが無い（${page} 枚）。8 枚以上の資料は、表紙（と要約）の後にアジェンダを置く：createDeck の nav に章立てを書き、agendaPage() を呼ぶ。各ページのタイトルは章の項目名になる。「15 枚」のような枚数の指定は、表紙とアジェンダを数えない本編の数として扱い、アジェンダを省く理由にしない`);
     // グラフのページ：見る所の値（FOCUS_FS・強調の色）が1つだけあるか
     FOCUS.forEach(f => { if (!CHARTP[f.page] || f.focus === false) return; const n = BIGF[f.page] || 0; if (!n) console.warn(`[deck-parts] P.${f.page} グラフの見る所の値が無い。見る所の値を ${FOCUS_FS}pt・強調の色で、見る所の隣に書く（focusValue か、部品の focusValue の口）`); else if (n > 1) console.warn(`[deck-parts] P.${f.page} 見る所の大きな値が ${n} つある。強調の色の大きな値は1つにする`); });
+    // リードの数字は、同じページの図で確かめられるようにする。10 までの数え方（「2つ」「5年で」「3社」）は除き、「4割」は 40 でもよい。図の文字が無いページは見ない
+    LEADS.forEach(l => {
+      if (!l.lead || !l.fig.length) return;
+      const inFig = new Set(l.fig.flatMap(numsOf));
+      const text = l.lead.normalize("NFKC").replace(/\n/g, "").replace(/(?<![\d.,])([1-9]|10)(?=つ|年(?!度)|か月|週間|時間|項目|工程|段階|社|店|案|種類)/g, "");
+      const tens = new Set((text.match(/\d+(\.\d+)?(?=割)/g) || []).map(v => String(Number(v))));
+      const missing = [...new Set(numsOf(text))].filter(v => !inFig.has(v) && !(tens.has(v) && inFig.has(String(Number(v) * 10))));
+      if (missing.length) console.warn(`[deck-parts] P.${l.page} リードの数字（${missing.join("、")}）が、このページの図に無い。図に同じ値を同じ書き方で示すか、リードから外す`);
+    });
     // 外部の製品・会社：図の中に名前があるのに、そのページにアイコンが無ければ知らせる
     Object.keys(BRANDS_ON).forEach(pg => Object.keys(BRANDS_ON[pg]).forEach(k => { if (!(ICONS_ON[pg] || {})[k]) console.warn(`[deck-parts] P.${pg} 外部の製品・会社（${k}）を図に出しているが、アイコンが無い。公式のアイコンを取得して icons/ に置き、名前の横に置く（scripts/fetch_icon.py）`); }));
     // 線の絵の色：資料の色の組（文字の色・強調の色）で塗ってあるかを確かめる
@@ -4559,6 +4598,8 @@ function createDeck(pres, opts = {}) {
       console.warn(`[deck-parts] 線の絵（アイコン）の色が、資料の色の組と合っていない（アイコン: ${ICON_TINT ? ICON_TINT.ink + "・" + ICON_TINT.emph : "塗っていない"}、資料: ${C.ink}・${C.emph}）。作業フォルダで塗り直す: python3 <skills>/pptx-deck-design/scripts/tint_icons.py icons --ink ${C.ink} --emph ${C.emph} --accent ${C.accent}`);
     // 見る所の一覧：点検で、画像を見て最初に目が行った所と引き比べる（review-checklist）
     if (opts.focusList !== false) fs.writeFileSync(String(outPath).replace(/\.pptx$/i, "") + ".focus.md", "# 見る所の一覧\n\n画像だけを見て「最初に目が行く所」を答え、下の宣言と合うかを確かめる。合わないページは、強調を直す。\n\n| ページ | タイトル | 見る所（宣言） |\n|---|---|---|\n" + FOCUS.filter(f => f.title).map(f => `| ${f.page} | ${f.title} | ${f.focus === false ? "（列挙。見る所なし）" : f.focus ?? "（宣言なし）"} |`).join("\n") + "\n");
+    // リードの一覧：リードだけを通して読み、話が通るかを確かめる（review-checklist）
+    if (opts.leadList !== false) { const cell = v => String(v || "—").replace(/\n/g, "").replace(/\|/g, "｜"); fs.writeFileSync(String(outPath).replace(/\.pptx$/i, "") + ".leads.md", "# リードの一覧\n\nリードだけを上から順に読み、話が通るかを確かめる。2文目があるページは、足したのが判断か次の行動の1つだけで、蛇足でないかを確かめる。\n\n| ページ | タイトル | リード |\n|---|---|---|\n" + LEADS.filter(l => l.title || l.lead).map(l => `| ${l.page} | ${cell(l.title)} | ${cell(l.lead)} |`).join("\n") + "\n"); }
     // ナビゲーションは、テーマの nav か opts.miniNav: true のときだけ描く（章立て nav は、アジェンダとタイトルに使う。現在地はタイトルで分かる）
     if (NAV && opts.miniNav !== false) {
       const baseT = TH.nav || {}, baseStyle = NAV_STYLE, layouts = {};

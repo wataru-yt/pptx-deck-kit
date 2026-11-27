@@ -11,7 +11,7 @@
 //   stateMap      … 項目ごとの、身についたかどうかの状態（P.4）
 //   roadmap       … 段階と、次へ進む条件（P.5。P.6 の決裁で、同じ図を series で背面に敷く）
 //
-// 見本の約束：題はアジェンダの項目名だけ（createDeck の nav から取る）。主張はリードの1文。全ページで見る所（focus）を1つ宣言し、強調はそこだけ。
+// 見本の約束：題はアジェンダの項目名だけ（createDeck の nav から取る）。主張はリード。全ページで見る所（focus）を1つ宣言し、強調はそこだけ。
 //   補足の sub は使わない。決裁は、根拠の図を背面に敷き、前面の messageBox で1件だけ言い、決める額を focusValue で大きく書く（decisionPage は使わない）
 const path = require("path");
 const pptxgen = require("pptxgenjs");
@@ -82,6 +82,8 @@ d.setChapter(2);
   const N = t => ({ text: t, state: "new" }), E = t => ({ text: t, state: "tried" }), B = t => ({ text: t, state: "base" });
   d.stateMap(s, {
     itemH: 0.46, itemGap: 0.07,
+    // リードの数字（14項目）を、図の中（凡例）でも確かめられるようにする
+    states: [{ key: "new", label: "今回身についた（14項目）", style: "frame" }, { key: "tried", label: "経験した（再現性はまだない）", style: "dashed" }, { key: "base", label: "以前から", style: "plain" }],
     // 6列だと箱の中は全角6字まで（箱は1行の高さ）。項目名は6字までの熟語にする
     groups: [
       { name: "企画", items: [N("業務の調査"), N("効果の試算"), E("予算の申請")] },

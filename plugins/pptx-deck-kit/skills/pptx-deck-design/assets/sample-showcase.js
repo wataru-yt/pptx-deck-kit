@@ -15,7 +15,7 @@
 //   projectGantt … 作業の日程（P.7）
 //
 // 見本の約束：密度は、図の中の数値と注釈で作る（ノードの数値、棒の値、駅の条件の値、作業と担当）。マス目に文を積まない。
-//   題はアジェンダの項目名だけ（createDeck の nav から取る）。主張はリードの1文。全ページで見る所（focus）を1つ宣言し、強調はそこだけ。補足の sub は使わない
+//   題はアジェンダの項目名だけ（createDeck の nav から取る）。主張はリード。全ページで見る所（focus）を1つ宣言し、強調はそこだけ。補足の sub は使わない
 const path = require("path");
 const pptxgen = require("pptxgenjs");
 const { createDeck } = require("./deck-parts");
@@ -38,7 +38,7 @@ d.agendaPage();
 // 親＝子の和（＋）か積（×）になるよう、数値をつなげる。増えた所1つだけ赤枠で、前年比を主役の値にする
 d.setChapter(1);
 {
-  const s = d.base(null, "件数が減らないのは、窓口への聞き直しが月260件に増えたため。", { focus: "赤枠の「窓口への聞き直し」の +18%" });
+  const s = d.base(null, "件数が減らないのは、窓口への聞き直しが月260件に増えたためだ。", { focus: "赤枠の「窓口への聞き直し」の +18%" });
   d.kpiTree(s, {
     root: { name: "窓口の件数（月）", value: "1,100件", chg: "−1.8%", op: "＋", children: [
       { name: "初めての問い合わせ", value: "840件", chg: "−6.7%", op: "×", children: [
