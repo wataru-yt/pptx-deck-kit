@@ -1507,9 +1507,25 @@ function createDeck(pres, opts = {}) {
     if (o.keep) o.keep(s, r);
     return r;
   };
-  // 前面の札：続きのページの前面に、2つ目の図を白い札に載せて重ねる（2026-11-28。関連する2つの論点が1つの図に収まらないとき）
-  //   c: { x, y, w, h（本文の領域の中。目安は幅 4.5〜6.5・高さ 3.2〜4.4。下端は本文の下端まで使ってよい）, title?（何の図か。1行）, draw: (s, rect) => …,
-  //        from（掘り下げる元の下の図の要素 { x, y, w, h }。そこは元の濃さで残し、札への矢印を部品が引く。colBars の span(i, j)・hBars の row(i, j) で作る）,
+  // ページごとの棒の区分（名前・値・範囲）。前面の札が、下の図の比べる相手を隠していないかを点検する
+  const UNDERBARS = {};
+  const noteUnder = (n, items) => { if (!inBox && !inDim && page) (UNDERBARS[page] ??= []).push({ n, items }); };
+  const nfk = t => String(t ?? "").normalize("NFKC").replace(/[\s,]/g, "");
+  // 札の見出しに、掘り下げる元の名前か期間があるか（名前の全体・区切った語・漢字やカタカナの2字以上の並び・西暦）
+  const titleNames = (title, names) => {
+    const t = nfk(title);
+    return names.some(nm => {
+      const x = String(nm).normalize("NFKC");
+      const words = [nfk(x), ...x.split(/[\s・\/（）()、]+/).map(nfk), ...(x.match(/[\u4e00-\u9fff々]{2,}|[\u30a1-\u30fa\u30fc]{2,}|[A-Za-z]{2,}/g) || []), ...(x.match(/(19|20)\d\d/g) || [])];
+      return words.some(w => w.length >= 2 && t.includes(w));
+    });
+  };
+
+  // 前面の札：続きのページの前面に、2つ目の図を白い札に載せて重ねる（2026-11-28）。
+  //   使うのは、2つ目の図が1つ目の図のある要素の掘り下げ（その要素の内訳・種類別・その要素の中の詳しい数字）のときだけ。
+  //   別の事実・別の指標を続けて言うなら、別のページ（別の図）にする
+  //   c: { x, y, w, h（本文の領域の中。目安は幅 4.5〜6.5・高さ 3.2〜4.4。下端は本文の下端まで使ってよい）, title（何の図か。掘り下げる元の名前か期間を入れる。1行）, draw: (s, rect) => …,
+  //        from（必須。掘り下げる元の下の図の要素。そこは元の濃さで残し、札への矢印を部品が引く。colBars の span(i, j)・hBars の row(i, j) で作る。ほかの図は { x, y, w, h, name: 要素の名前 }）,
   //        arrowAt?（矢印の位置。横向きなら y、縦向きなら x。既定は from と札が向き合う範囲の中央）,
   //        ref?（札の中の図に引く基準線 { value, label }。全体の値など。例 { value: 61, label: "全体 +61%" }。draw は colBars か hBars の戻り値を返す）,
   //        clear?（ほかにも隠してはいけない下の図の要素） }
@@ -1524,7 +1540,19 @@ function createDeck(pres, opts = {}) {
     const from = c.from;
     if (from && ![from.x, from.y, from.w, from.h].every(Number.isFinite)) throw new Error(`前面の札（${name}）の from は { x, y, w, h } で渡す`);
     if (from && (from.parts || [from]).some(hit)) throw new Error(`前面の札（${name}）が、掘り下げる元の要素（from）に重なる。札を、話に使わない区分の上か空いた側へ移すか、小さくする`);
-    if (!from) warn(`前面の札（${name}）に from が無い。掘り下げる元の要素を from（矩形）で渡す。渡さないと下の図が全部薄くなり、どこの話かが分からない`);
+    if (!from) warn(`前面の札（${name}）に from が無い。重ねる形は、下の図のある要素の掘り下げにだけ使う。その要素を from で渡す（colBars の span・hBars の row）。掘り下げでないなら、重ねずに別のページにする`);
+    const fromNames = from ? [].concat(from.names ?? from.name ?? []).map(String).filter(Boolean) : [];
+    if (from && !fromNames.length) warn(`前面の札（${name}）の from に、掘り下げる元の名前が無い。colBars の span・hBars の row で作る（ほかの図の要素は name を付ける）`);
+    else if (from && !titleNames(title, fromNames)) warn(`前面の札の見出し（${name}）に、掘り下げる元（${fromNames.join("・")}）の名前か期間が無い。別の指標・別の事実に見える。掘り下げ（その要素の内訳・種類別・詳しい数字）なら見出しに元の名前を入れ、別の事実なら重ねずに別のページにする`);
+    // 下の図の比べる相手を隠さない：区分が3つまでの図は全部、それより多い図は、見る所の区分と1枚目のリードが名指しする区分
+    if (from) {
+      const said = String((s._lead && s._lead.under) || "").normalize("NFKC").replace(/,/g, "");
+      const esc = v => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const saidNum = v => { const m = nfk(v).match(/\d+(\.\d+)?/); return !!m && new RegExp(`(?<![\\d.])${esc(m[0])}(?![\\d.]|年|月)`).test(said); };
+      const inFrom = it => fromNames.includes(it.name) || (!fromNames.length && (from.parts || [from]).some(p => it.boxes.some(b => b.x < p.x + p.w && p.x < b.x + b.w && b.y < p.y + p.h && p.y < b.y + b.h)));
+      const hidden = (UNDERBARS[page] || []).flatMap(u => u.items.filter(it => !inFrom(it) && it.boxes.some(hit) && (u.n <= 3 || it.focus || (said && (new RegExp(`(?<![\\d.])${esc(nfk(it.name))}`).test(nfk(said)) || it.values.some(saidNum))))));
+      if (hidden.length) warn(`前面の札（${name}）が、下の図の比べる相手（${hidden.slice(0, 3).map(it => `${it.name} ${it.values.join("/")}`).join("、")}）を隠す。札を、話に使わない区分の上か空いた側へ移すか、小さくする。置けないなら、重ねずに別のページにする`);
+    }
     if (!ECHOED.has(page)) warn(`前面の札（${name}）は、同じ図を薄く敷いた続きのページ（series の overlay か、echo の後）で使う。図の横に別の図を足さない`);
     if (hit(c.clear)) warn(`前面の札（${name}）が、隠してはいけない下の図の要素（clear）に重なる。札を空いた側・値の小さい側へ移すか、小さくする`);
     // 下の図の主役の値（文字の範囲は、字の幅と寄せから見積もる）
@@ -1613,6 +1641,7 @@ function createDeck(pres, opts = {}) {
       let card;
       const cardOf = r2 => card || (card = typeof p.overlay === "function" ? p.overlay(r2) : p.overlay);
       if (p.overlay && p.spot) warn("同じ図の続きのページ：overlay と spot を同時に渡さない。元の濃さで残すのは、overlay の from の1か所");
+      if (p.overlay && head !== s._lead) s._lead.under = head.lead;
       const spot = p.overlay ? r2 => cardOf(r2).from ?? (typeof p.spot === "function" ? p.spot(r2) : p.spot) : p.spot;
       const r = echo(s, s2 => drawFig(s2, {}), { area: so.area, transparency: so.transparency, check: so.check, spot, keep });
       if (!so.check && p.box) [].concat(typeof p.box === "function" ? p.box(r) : p.box).forEach(b => messageBox(s, b));
@@ -1818,9 +1847,17 @@ function createDeck(pres, opts = {}) {
     if (over) warn(`${name}：項目名が欄に入らない（${over[0]}）。名前を縮めるか、labelW を広げる`);
     return lw;
   };
-  // 図は本文の領域を使い切る（2026-11-28）。区分が少なくても中央に縮めない：行の間隔・区分の幅は領域を割って決め、
-  // 棒の太さには上限を置いて、残りは区分の間にする
-  const BAR_H_MAX = 0.75, BAR_W_MAX = 1.8, BAR_W_MAX_PAIR = 1.1;
+  // 図は本文の領域を使い切る（2026-11-28）：行の間隔・区分の幅は領域を割って決める。棒の太さには上限を置く。
+  // ただし区分が少ない（2〜3本）ときは、棒の間を広げて埋めない。間は棒（群）の太さの BAR_GAP 倍までにし、
+  // 棒と値をまとめて中央に置いて、余る幅・高さは左右・上下の余白にする
+  const BAR_H_MAX = 0.75, BAR_H_MAX_FEW = 1.0, BAR_W_MAX = 1.8, BAR_W_MAX_PAIR = 1.1, BAR_GAP = 0.8;
+  // まとめて置いて余白ができても、部品に与えた範囲を図の範囲に数える（本文の8割の点検で、間を広げる方へ向かわせない）
+  const claimFig = (x0, x1, y0, y1) => {
+    if (inDim || inBox) return;
+    const f = FIGBOX[page] || (FIGBOX[page] = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity });
+    if (x0 != null) { f.x0 = Math.min(f.x0, x0); f.x1 = Math.max(f.x1, x1); }
+    if (y0 != null) { f.y0 = Math.min(f.y0, y0); f.y1 = Math.max(f.y1, y1); }
+  };
   // 横に伸びる棒の太さと行の間隔。pitch は領域の高さ÷行数、太さは間隔の 0.6 倍まで（間は太さの 0.5〜1 倍の目安）
   const barRows = (name, room, o) => {
     const t = FS.body / 72;
@@ -1833,12 +1870,16 @@ function createDeck(pres, opts = {}) {
     }
     return { bh, pitch };
   };
-  // 縦に伸びる棒の太さと区分の幅。区分の幅は x0〜x1 を区分の数で割る
-  const colSlot = (name, { x0, x1, n, nS = 1, gap = 0, bw }) => {
-    const slot = (x1 - x0) / n, cap = nS > 1 ? BAR_W_MAX_PAIR : BAR_W_MAX;
-    const w = bw ?? Math.max(0.2, Math.min(cap, (slot * 0.65 - gap * (nS - 1)) / nS));
+  // 縦に伸びる棒の太さと区分の幅。区分の幅は x0〜x1 を区分の数で割る。区分が少なく間が広がるときは、
+  // 区分の幅を棒（群）の太さ×(1+BAR_GAP)（区分名が長ければその幅）で止め、まとめて中央に置く。claim: 点検で図の範囲に数える左右
+  const colSlot = (name, { x0, x1, n, nS = 1, gap = 0, bw, needW = 0, right = 0 }) => {
+    const full = (x1 - x0) / n, cap = nS > 1 ? BAR_W_MAX_PAIR : BAR_W_MAX;
+    const w = bw ?? Math.max(0.2, Math.min(cap, (full * 0.65 - gap * (nS - 1)) / nS));
     if (bw != null && bw > cap + 0.05) warn(`${name}：棒が太い（bw ${bw}）。指定を外すと、区分の数から決まる`);
-    return { bw: w, slot, x0, x1 };
+    const gw = w * nS + gap * (nS - 1), slot = Math.min(full, Math.max(gw * (1 + BAR_GAP), needW));
+    const pad = (full - slot) * n / 2;
+    if (pad > 0.05) claimFig(x0, x1 + right);
+    return { bw: w, slot, x0: x0 + pad, x1: x1 - pad };
   };
 
   const figHead = (s, text, legend, o = {}) => {
@@ -1880,7 +1921,7 @@ function createDeck(pres, opts = {}) {
     const labW = Math.max(...o.cats.map(c => textW(c, FS.body))) + 0.25;
     const valW = o.values === false ? 0 : Math.max(...all.map(v => textW(fmt(v), FS.head))) + 0.15;
     const { bw, slot, x0, x1 } = colSlot("縦棒", { x0: o.x0 ?? M, x1: o.x1 ?? W - M, n: nC, nS, gap, bw: o.bw,
-      needW: Math.max(labW, nS === 1 ? valW : 0, o.focus ? textW(fmt(all.reduce((a, b) => Math.abs(b) > Math.abs(a) ? b : a, 0)), o.focusFs ?? FOCUS_FS) + 0.15 : 0), fill: o.x0 != null && o.x1 != null });
+      needW: Math.max(labW, nS === 1 ? valW : 0, o.focus ? textW(fmt(all.reduce((a, b) => Math.abs(b) > Math.abs(a) ? b : a, 0)), o.focusFs ?? FOCUS_FS) + 0.15 : 0) });
     const gw = bw * nS + gap * (nS - 1);
     rangeBar("縦棒", all.map(v => fmt(v)));
     const focus = new Set((o.focus || []).map(([j, i]) => `${j}:${i}`));
@@ -1985,8 +2026,10 @@ function createDeck(pres, opts = {}) {
         if (o.values !== false) ser.forEach((_, m) => parts.push(LAB[`${m}:${q}`]));
       }
       if (i === 0) namePlaces().forEach(p => parts.push({ x: p.x, y: p.y, w: p.w, h: nameH }));
-      return { ...union(body), parts };
+      return { ...union(body), parts, names: o.cats.slice(i, j + 1).map(String) };
     };
+    noteUnder(nC, o.cats.map((c, i) => ({ name: String(c), values: ser.map(sr => fmt(sr.values[i])), focus: ser.some((_, m) => focus.has(`${m}:${i}`)),
+      boxes: ser.flatMap((_, m) => (o.values === false ? [BAR[`${m}:${i}`]] : [BAR[`${m}:${i}`], LAB[`${m}:${i}`]])) })));
     return { barX, barTop, cx: i => x0 + i * slot + slot / 2, base, k, bw, span, texts: o.values === false ? [] : Object.values(LAB) };
   };
   // 横棒（図形）：0の線から左右に伸ばす。項目の名前が長い、正負が混ざる、全体と内訳を並べるときに使う
@@ -2013,11 +2056,19 @@ function createDeck(pres, opts = {}) {
     const left = X0 + lw + (maxN ? Math.max(valW, fvW(false)) : 0), right = X1 - Math.max(valW, fvW(true));
     const k = (right - left) / (maxP + maxN || 1), Z = left + maxN * k;
     const ys = []; let y = o.y0 ?? 2.6;
-    let { bh, pitch } = barRows("横棒", (END - y) / rows.reduce((a, r) => a + (r ? 1 : 0.5), 0), o);
-    // 行は高さいっぱいに配る。上下の余白は小さく取り（0.3 まで）、残りは行の間に入れる（行が少なくても中央に寄せない）
     const units = rows.reduce((a, r) => a + (r ? 1 : 0.5), 0), fill = o.pitch == null && units > 1;
-    const edge = o.pitch == null ? Math.max(0, Math.min((pitch - bh) / 2, fill ? 0.3 : Infinity)) : 0;
-    const step = fill ? (END - y - 2 * edge - bh) / (units - 1) : pitch;
+    let { bh, pitch } = barRows("横棒", (END - y) / units, o);
+    // 行が少ない（2〜3行）ときは、行の間を広げず、棒を上限まで太くする
+    if (units <= 3 && o.bh == null && o.pitch == null) bh = Math.max(bh, Math.min(BAR_H_MAX_FEW, (END - y) / (units + (units - 1) * BAR_GAP)));
+    // 行は高さいっぱいに配る。上下の余白は小さく取り（0.3 まで）、残りは行の間に入れる。
+    // 間が棒の太さの BAR_GAP 倍を超える分は入れず、行をまとめて上下の中央に置く
+    let edge = o.pitch == null ? Math.max(0, Math.min((pitch - bh) / 2, fill ? 0.3 : Infinity)) : 0;
+    let step = fill ? (END - y - 2 * edge - bh) / (units - 1) : pitch;
+    if (fill && o.bh == null && step > bh * (1 + BAR_GAP) + 0.001) {
+      claimFig(null, null, y, END);
+      step = bh * (1 + BAR_GAP);
+      edge = (END - y - (units - 1) * step - bh) / 2;
+    }
     rows.forEach(r => { ys.push(y + (r ? edge : 0)); y += r ? step : step / 2; });
     const OBS = []; // 棒と値の文字の範囲（主役の値の重なりの点検）
     rows.forEach((r, i) => {
@@ -2055,8 +2106,9 @@ function createDeck(pres, opts = {}) {
     // row(i, j)：i〜j 行目の項目名・棒・値を、外側でまとめて囲む矩形（札の from に使う）
     const row = (i, j = i) => {
       const part = OBS.filter(b => b.i >= i && b.i <= j), z = Math.max(Z, ...part.map(b => b.x + b.w)) + 0.06;
-      return { x: X0 - 0.04, y: ys[i] - 0.06, w: z - X0 + 0.04, h: ys[j] + bh - ys[i] + 0.12 };
+      return { x: X0 - 0.04, y: ys[i] - 0.06, w: z - X0 + 0.04, h: ys[j] + bh - ys[i] + 0.12, names: rows.slice(i, j + 1).filter(Boolean).map(r => String(r.label)) };
     };
+    noteUnder(rows.filter(Boolean).length, rows.map((r, i) => r && { name: String(r.label), values: [fmt(r.value)], focus: !!(r.focusValue || r.strong), boxes: OBS.filter(b => b.i === i) }).filter(Boolean));
     return { ys, Z, k, bh, row, texts: OBS.filter(b => b.txt) };
   };
   // 帯でつなぐ積み上げ棒（配分の推移）：棒の高さは総量に比例、同じ区分を隣の期と帯でつなぐ。区分名は右端の棒の横に置き、凡例は置かない
@@ -4039,7 +4091,7 @@ function createDeck(pres, opts = {}) {
     const top = o.top ?? 2.85, base = o.base ?? BOTTOM - 0.4;
     const tot = i => ser.reduce((a, sr) => a + sr.values[i], 0);
     const max = pct ? 1 : (o.max ?? Math.max(...o.cats.map((_, i) => tot(i))) * 1.08);
-    const { bw, slot, x0 } = colSlot("積み上げ縦棒", { x0: o.x0 ?? M, x1: o.x1 ?? W - M - lw, n, bw: o.bw, needW: Math.max(...o.cats.map(c => textW(c, FS.body))) + 0.25, fill: o.x0 != null && o.x1 != null });
+    const { bw, slot, x0 } = colSlot("積み上げ縦棒", { x0: o.x0 ?? M, x1: o.x1 ?? W - M - lw, n, bw: o.bw, needW: Math.max(...o.cats.map(c => textW(c, FS.body))) + 0.25, right: lw });
     const bx = i => x0 + i * slot + (slot - bw) / 2;
     const fmt = o.fmt || (v => fmtNum(v)), pf = o.pctFmt || (r => Math.round(r * 100) + "%");
     const seg = o.cats.map((_, i) => { let y = base; const t = tot(i); return ser.map(sr => { const v = pct ? sr.values[i] / t : sr.values[i], h = v / max * (base - top), r = [y - h, y]; y -= h; return r; }); });
