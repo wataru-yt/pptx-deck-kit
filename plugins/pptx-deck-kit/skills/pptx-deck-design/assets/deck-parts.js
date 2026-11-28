@@ -812,6 +812,10 @@ function createDeck(pres, opts = {}) {
   const NOT_VERB = /(([0-9０-９一二三四五六七八九十何幾]|ひと|ふた|みっ|よっ|いつ|むっ|なな|やっ|ここの|いく|ず)つ|多く|近く|遠く|少ない|すぐ)$/;
   // 数字の取り出し：全角と半角、桁区切りのカンマ、末尾の .0 をそろえる
   const numsOf = t => (String(t).normalize("NFKC").replace(/(\d),(?=\d{3})/g, "$1").match(/\d+(\.\d+)?/g) || []).map(v => String(Number(v)));
+  // 前面の箱（messageBox・callout）の中身。同じ図の続きではないページで、指さない箱に図に無い数値があると、finalize で知らせる（2026-11-28）
+  const BOXES = [], ECHOED = new Set();
+  let inBox = false;
+  const noteBox = o => { if (page && !o.to && !o.toRange) BOXES.push({ page, head: String(o.head ?? ""), text: `${o.head ?? ""}\n${o.body ?? ""}` }); };
   // 図に描いた文字（リードの数字と照合する）：addText・addTable・addChart の引数から取り出す
   const figTexts = (method, a) => {
     const join = t => Array.isArray(t) ? t.map(r => (r && typeof r === "object" ? join(r.text ?? "") + (r.options && r.options.breakLine ? "\n" : "") : String(r ?? ""))).join("") : String(t ?? "");
@@ -831,7 +835,7 @@ function createDeck(pres, opts = {}) {
     if (method === "addTable") (a[0] || []).forEach(row => (row || []).forEach(c => { const o = c && typeof c === "object" && !Array.isArray(c); walk(o ? c.text ?? "" : c, (o && c.options && c.options.fontSize) ?? (a[1] && a[1].fontSize) ?? 18); }));
     return out;
   };
-  const LEADS = []; // { page, title, lead, ask, fig, big }。一覧（.leads.md）と、数字の照合に使う
+  const LEADS = []; // { page, title, lead, ask, fig, big, own（箱を除いた図の文字） }。一覧（.leads.md）と、数字の照合に使う
   // 図の中の文・メッセージボックス・表の文：リードと同じ一覧で、縮められる言い回しを知らせる（同じ文は1回だけ。題とリードは checkLead が見る）
   const HEAD_TEXT = new Set(), WORD_SEEN = new Set();
   wordHook = text => {
@@ -875,10 +879,10 @@ function createDeck(pres, opts = {}) {
     const s = newSlide("content");
     track(s, o);
     FOCUS.push({ page, title, focus: o.focus });
-    const fig = [], big = [];
-    LEADS.push({ page, title, lead: lead ? String(lead) : "", ask: [].concat(o.ask || []).join(" ／ "), fig, big });
+    const fig = [], big = [], own = [];
+    LEADS.push({ page, title, lead: lead ? String(lead) : "", ask: [].concat(o.ask || []).join(" ／ "), fig, big, own });
     // 題・リード・フッター・ナビを除いた、図の文字を控える
-    ["addText", "addTable", "addChart"].forEach(m => { const f = s[m].bind(s); s[m] = (...a) => { if (!inChrome && !inFooter) { fig.push(...figTexts(m, a)); big.push(...bigTexts(m, a)); } return f(...a); }; });
+    ["addText", "addTable", "addChart"].forEach(m => { const f = s[m].bind(s); s[m] = (...a) => { if (!inChrome && !inFooter) { fig.push(...figTexts(m, a)); big.push(...bigTexts(m, a)); if (!inBox) own.push(...figTexts(m, a)); } return f(...a); }; });
     if (title && o.focus === undefined) warn("見る所の宣言がない（base の o.focus に、持ち帰る1つ（最初に目が行くべき要素）を書く。false は、リードが主張を言わないページだけ）");
     if (o.focus === false && lead && !/付録|参考|一覧|目次|アジェンダ/.test(String(title || ""))) warn("主張を言うリードがあるのに、見る所がない（focus: false）。持ち帰る1つ（語か数値）を決めて、それがいちばん大きく見える形にする");
     if (title) HEAD_TEXT.add(String(title));
@@ -1368,10 +1372,11 @@ function createDeck(pres, opts = {}) {
 
   // ---- 重ね技 ----
   // 前ページと同じ図を同じ関数・同じ座標で描いた上に、白の半透明を重ねて薄くする（transparency 18〜30）。前面に吹き出し・メッセージを置く
-  const overlay = (s, x = 0, y = 2.15, w = W, h = BOTTOM - 2.15, transparency = 30) => s.addShape(SH.RECTANGLE, { x, y, w, h, fill: { color: PAGE_BG(), transparency }, line: { type: "none" } });
+  const overlay = (s, x = 0, y = 2.15, w = W, h = BOTTOM - 2.15, transparency = 30) => (ECHOED.add(page), s.addShape(SH.RECTANGLE, { x, y, w, h, fill: { color: PAGE_BG(), transparency }, line: { type: "none" } }));
   // 前面の吹き出し：白箱に赤 1.25 枠＋弱い影、赤の番号丸、見出し bold＋起きたこと soft。引き出し線で図中の位置（赤の番号丸）を指す（4.8）
   //   o: { x, y, w, h, no, head, body, to: [x, y]（指す位置）, from: [x, y]（線の出どころ。既定は箱の下辺中央）, refKey（右下に「P.n」） , refPrefix }
-  const callout = (s, o) => {
+  const callout = (s, o) => { noteBox(o); inBox = true; try { callout0(s, o); } finally { inBox = false; } };
+  const callout0 = (s, o) => {
     const h = o.h ?? 1.0, from = o.from || [o.x + o.w / 2, o.to && o.to[1] < o.y ? o.y : o.y + h];
     if (o.to) segLine(s, from[0], from[1], o.to[0], o.to[1], { color: C.accent, width: 1.25 });
     s.addShape(SH.RECTANGLE, { x: o.x, y: o.y, w: o.w, h, fill: { color: C.white }, line: { color: C.accent, width: 1.25 }, shadow: { type: "outer", color: "000000", opacity: 0.15, blur: 6, offset: 2, angle: 90 } });
@@ -1388,7 +1393,8 @@ function createDeck(pres, opts = {}) {
   // 前面のメッセージボックス：同じ図を背面に敷いたページで、分かったことを図の上に重ねて示す（4.9・4.11）
   //   白箱に ink 1pt の枠＋弱い影、見出し FS.head（18pt）bold＋説明 FS.body（16pt）soft。o.to で指す位置へ赤の線（視線誘導）を引き、先端に小さな丸
   //   o: { x, y, w, h, head, body?, to?: [x, y] | toRange?: [[x1, y], [x2, y]]（範囲を指す）, num?（左上に紺の番号丸）, refKey?（右下に「P.n」、根拠のページ）, refPrefix? }
-  const messageBox = (s, o) => {
+  const messageBox = (s, o) => { noteBox(o); inBox = true; try { messageBox0(s, o); } finally { inBox = false; } };
+  const messageBox0 = (s, o) => {
     if (o.head && em(o.head) > 20) warn(`メッセージボックスの見出しが長い（全角${Math.round(em(o.head))}字。20字まで）：${o.head}`);
     if (o.body) String(o.body).replace(/\n/g, "").split("。").filter(x => x.trim()).forEach(x => { if (em(x) > 40) warn(`メッセージボックスの1文が長い（全角${Math.round(em(x))}字。40字まで）：「${x.slice(0, 18)}…」`); });
     // 高さを指定しないときは、文字の行数から決める
@@ -1425,6 +1431,7 @@ function createDeck(pres, opts = {}) {
   //   keep: (s, r) => {}  覆いの上に、前面で指す要素（主役の棒、値のラベルなど）だけを元の濃さで描き直す。r は drawFig の戻り値
   //   check: true         覆いと keep を描かない（元のページと画像を引き比べ、図が動いていないことを確かめる用。確かめたら外す）
   const echo = (s, drawFig, o = {}) => {
+    ECHOED.add(page);
     const r = drawFig(s);
     if (o.check) return r;
     const a = o.area || {};
@@ -4670,6 +4677,15 @@ function createDeck(pres, opts = {}) {
       const values = [...new Set(numsOf(text.replace(/(?<![\d.,])(19|20)\d\d(?=年)/g, "").replace(/(?<![\d.,])(1[0-2]|[1-9])(?=月)/g, "").replace(/(?<![\d.,])([1-9]|10)(?=人|名|チーム|周|回|件)/g, "")))].filter(v => inFig.has(v) || (tens.has(v) && inFig.has(String(Number(v) * 10))));
       const big = new Set(l.big.flatMap(numsOf));
       if (values.length && !values.some(v => big.has(v) || (tens.has(v) && big.has(String(Number(v) * 10))))) console.warn(`[deck-parts] P.${l.page} リードの数値（${values.join("、")}）が、どれも図の中で大きくない（${BIG_PT}pt 未満）。持ち帰る値を主役の大きさにする（部品の focusValue、roadmap の kpis の { key: true }、focusValue(s, 値, 場所) など）`);
+    });
+    // 1ページの情報は1つの図：同じ図の続きではないページの、指さない箱に、図に描いていない数値があれば知らせる。「1回」「2つ」などの数え方と年は除く
+    const boxNums = t => numsOf(String(t).normalize("NFKC").replace(/(?<![\d.,])(19|20)\d\d(?=年)/g, "").replace(/(?<![\d.,])([1-9]|10)(?=つ|回|件|番|人目|週目|か月目|年目)/g, ""));
+    BOXES.forEach(b => {
+      const l = LEADS.find(x => x.page === b.page);
+      if (!l || ECHOED.has(b.page)) return;
+      const drawn = new Set(l.own.flatMap(numsOf));
+      const missing = [...new Set(boxNums(b.text))].filter(v => !drawn.has(v));
+      if (missing.length) console.warn(`[deck-parts] P.${b.page} 図の外の箱（「${b.head.replace(/\n/g, "").slice(0, 18)}」）に、図に無い数値（${missing.join("、")}）がある。1ページの情報は1つの図にまとめる：1つのグラフで両方を表すか、ページを分ける（同じ図を敷いた続きの series か、別の図）。補足の箱で足さない`);
     });
     // 聴講者が持ちうる疑問：リードのある全ページで、問いと答えの場所を書いてから点検する（画面には出さない）
     const noAsk = LEADS.filter(l => l.lead && !l.ask).map(l => l.page);
