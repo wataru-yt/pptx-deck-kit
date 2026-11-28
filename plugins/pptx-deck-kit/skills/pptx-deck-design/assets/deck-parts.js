@@ -861,7 +861,7 @@ function createDeck(pres, opts = {}) {
     wrap("addText", a => (a[1] && inkBox(a[0], a[1])));
     wrap("addImage", a => a[0]);
     wrap("addChart", a => (Array.isArray(a[0]) ? a[1] : a[2]));
-    wrap("addTable", a => { const o = a[1] || {}, rows = a[0] || []; return { x: o.x, y: o.y, w: o.w ?? [].concat(o.colW || []).reduce((p, q) => p + q, 0), h: o.h ?? [].concat(o.rowH || 0.4).length > 1 ? [].concat(o.rowH).reduce((p, q) => p + q, 0) : rows.length * [].concat(o.rowH || 0.4)[0] }; });
+    wrap("addTable", a => { const o = a[1] || {}, rows = a[0] || []; return { x: o.x, y: o.y, w: o.w ?? [].concat(o.colW || []).reduce((p, q) => p + q, 0), h: o.h ?? ([].concat(o.rowH || 0.4).length > 1 ? [].concat(o.rowH).reduce((p, q) => p + q, 0) : rows.length * [].concat(o.rowH || 0.4)[0]) }; });
   };
   const LEADS = []; // { page, title, lead, ask, fig, big, own（箱を除いた図の文字） }。一覧（.leads.md）と、数字の照合に使う
   // 図の中の文・メッセージボックス・表の文：リードと同じ一覧で、縮められる言い回しを知らせる（同じ文は1回だけ。題とリードは checkLead が見る）
@@ -899,6 +899,22 @@ function createDeck(pres, opts = {}) {
     if ((w = flat.match(VAGUE))) warn(`リードの「${w[0]}」は、数字で書く`);
     if ((w = flat.match(METAPHOR))) warn(`リードの「${w[0]}」は比喩・抽象語。何を・どうするで書く（例：足場が要る → 個食への参入が必要）`);
   };
+  // 題が、そのページで扱う中身の名前か。題の最後の「の」より後の言葉（「全体像」「内訳」のような形の言葉なら、その前）を、
+  // 「と」で分けて、それぞれが図の見出し・札の見出し・リード・図の文字のどこかにあるかを見る。無い言葉を返す
+  const TITLE_FORM = /^(全体|全体像|概要|まとめ|一覧|内訳|流れ|比較|推移|分布|関係|構成|構成比|状況|現状|計画|進め方|仕組み|方針|分析|検討|ポイント|今後|紹介|説明|事業|サービス|コンセプト|分解|動向|位置づけ|体制|推進体制|役割|分担|役割分担|決裁|承認|依頼|お願い|会社概要|沿革|ねらい|目的|背景|原因|課題|解決策|選択肢|強み|実績|違い|演習)$/;
+  const titleMiss = (title, text) => {
+    const hay = String(text).normalize("NFKC").replace(/\s/g, "").toLowerCase();
+    const chunks = String(title).normalize("NFKC").replace(/\s|\([^()]*\)/g, "").split(/(?<=[一-龠々ァ-ヴーA-Za-z0-9])の/).filter(Boolean);
+    while (chunks.length && TITLE_FORM.test(chunks[chunks.length - 1])) chunks.pop();
+    const head = chunks[chunks.length - 1] || "";
+    return head.split(/[、]|(?<=[一-龠々ァ-ヴーA-Za-z])と(?=[一-龠々ァ-ヴーA-Za-z])/).filter(part => {
+      const runs = part.match(/[ァ-ヴー]{2,}|[一-龠々]{2,}|[A-Za-z]{2,}/g) || [];
+      if (!part || TITLE_FORM.test(part) || (runs.length && runs.every(w => TITLE_FORM.test(w)))) return false;
+      // 漢字の長い語（市場規模）は、前後の2字でも合うとみなす
+      const words = runs.flatMap(w => (/^[一-龠々]{4,}$/.test(w) ? [w, w.slice(0, 2), w.slice(-2)] : [w])).filter(w => !TITLE_FORM.test(w));
+      return ![part, ...words].some(w => hay.includes(w.toLowerCase()));
+    });
+  };
   const base = (title, lead, o = {}) => {
     const navNow = NAV && chapterNow ? NAV.find(n => n.ch === chapterNow || (n.subs || []).includes(chapterNow)) : null;
     if (title == null && navNow && !ACTION) title = navNow.name; // 章立て（nav）を1か所に書けば、タイトルはそこから取る
@@ -908,7 +924,9 @@ function createDeck(pres, opts = {}) {
     track(s, o);
     FOCUS.push({ page, title, focus: o.focus });
     const fig = [], big = [], own = [];
-    LEADS.push({ page, title, lead: lead ? String(lead) : "", ask: [].concat(o.ask || []).join(" ／ "), fig, big, own });
+    const entry = { page, title, lead: lead ? String(lead) : "", ask: [].concat(o.ask || []).join(" ／ "), fig, big, own, heads: [], cards: [] };
+    LEADS.push(entry);
+    s._lead = entry;
     trackFig(s, page);
     // 題・リード・フッター・ナビを除いた、図の文字を控える
     ["addText", "addTable", "addChart"].forEach(m => { const f = s[m].bind(s); s[m] = (...a) => { if (!inChrome && !inFooter) { fig.push(...figTexts(m, a)); big.push(...bigTexts(m, a)); if (!inBox) own.push(...figTexts(m, a)); } return f(...a); }; });
@@ -929,8 +947,8 @@ function createDeck(pres, opts = {}) {
       checkReadable("content", "title", tb, tb.color, title, tb.size);
       if (ACTION) T(s, title, { ...boxText(tb), y: tb.y - 0.12, h: 0.95, fontSize: 20, valign: "middle", lineSpacingMultiple: 1.2 });
       else T(s, title, boxText(tb));
-      // 題に副題を付けない（2026-11-24。題は項目名だけ・薄い補足の文字を足さない）。同じ章で別の図が続くときも題は同じにし、何のページかはリードで言う
-      if (o.sub && !ACTION) warn(`題に副題を付けない（${o.sub}）。題はアジェンダの項目名だけにし、何のページかはリードで言う`);
+      // 題に副題を付けない（2026-11-24。題は項目名だけ・薄い補足の文字を足さない）。題は、そのページで扱う中身の名前にする
+      if (o.sub && !ACTION) warn(`題に副題を付けない（${o.sub}）。題は扱う中身の名前だけにする`);
     }
     if (ACTION && lead) warn("結論を題に書く資料（titleStyle: \"action\"）では、リードを置かない（主張を書く場所は1か所）");
     if (lead) {
@@ -1522,6 +1540,7 @@ function createDeck(pres, opts = {}) {
     const ix = x + PAD.x, iw = w - PAD.x * 2;
     if (title) {
       if (textW(name, FS.head) > iw) warn(`前面の札の見出しが1行に収まらない（${name}）`);
+      if (s._lead) s._lead.cards.push(name);
       T(s, name, { x: ix, y: y + 0.1, w: iw, h: 0.36, fontSize: FS.head, bold: true, valign: "middle", wrap: false });
     }
     const iy = y + (title ? 0.55 : PAD.y), ih = y + h - PAD.y - iy;
@@ -1581,9 +1600,12 @@ function createDeck(pres, opts = {}) {
   //             overlay?（前面に重ねる2つ目の図。frontCard の引数か、図の戻り値から返す関数） }
   //   続きのページは、連続していなくてよい（ロードマップの図を、後ろの資金調達のページでもう一度敷く、など）
   const series = (drawFig, so = {}) => {
-    let n = 0;
+    let n = 0, head = null;
     const one = p => {
       const s = base(p.title, p.lead, { key: p.key, section: p.section, focus: p.focus, ask: p.ask });
+      // 同じ図の同じ話題を続けるページ（札を重ねず、題も同じ）は、題を1枚目のリードとも照らす
+      if (!head) head = s._lead;
+      else if (!p.overlay && s._lead.title === head.title) s._lead.base = head.lead;
       const first = n++ === 0, front = p.spot || p.only || p.keep || p.box || p.overlay;
       if (p.plain || (first && !front)) return { s, r: drawFig(s, {}) };
       const keep = p.keep ? (s2, r2) => p.keep(s2, r2) : p.only ? s2 => drawFig(s2, { only: p.only }) : undefined;
@@ -1821,6 +1843,7 @@ function createDeck(pres, opts = {}) {
 
   const figHead = (s, text, legend, o = {}) => {
     if (legend && legend.length) s._figLegend = true;
+    if (s._lead) s._lead.heads.push(String(text));
     const y = o.y ?? Y.body, x = o.x ?? M;
     // 何の数値か・単位・時点は、要る情報なので、読める大きさと色で書く（2026-11-24。9.5pt の灰をやめた）
     T(s, text, { x, y: y - 0.04, w: 9, h: 0.32, fontSize: FS.body, color: C.soft, valign: "middle", wrap: false });
@@ -4853,6 +4876,11 @@ function createDeck(pres, opts = {}) {
     FOCUS.forEach(f => { if (!CHARTP[f.page] || f.focus === false) return; const n = BIGF[f.page] || 0; if (!n) deckWarn(`[deck-parts] P.${f.page} グラフの見る所の値が無い。見る所の値を ${FOCUS_FS}pt・強調の色で、見る所の隣に書く（focusValue か、部品の focusValue の口）`); else if (n > 1) deckWarn(`[deck-parts] P.${f.page} 見る所の大きな値が ${n} つある。強調の色の大きな値は1つにする`); });
     // リードの数字は、同じページの図で確かめられるようにする。10 までの数え方（「2つ」「5年で」「3社」）は除き、「4割」は 40 でもよい。図の文字が無いページは見ない
     LEADS.forEach(l => {
+      if (ACTION || !l.title || !l.lead || /付録|参考|一覧|目次|アジェンダ/.test(l.title)) return;
+      const miss = titleMiss(l.title, [l.lead, l.base || "", ...l.heads, ...l.cards, ...l.fig].join("\n"));
+      if (miss.length) deckWarn(`[deck-parts] P.${l.page} 題（${l.title}）の「${miss.join("」「")}」が、図の見出し・札の見出し・リード・図の文字のどこにも無い。題は、このページの図とリードが扱う中身の名前にする（章の項目名を題に使うのは、中身が章の全体と合うときだけ）。同じ中身なら、図の見出しかリードと言葉をそろえる`);
+    });
+    LEADS.forEach(l => {
       if (!l.lead || !l.fig.length) return;
       const inFig = new Set(l.fig.flatMap(numsOf));
       const text = l.lead.normalize("NFKC").replace(/\n/g, "").replace(/(?<![\d.,])([1-9]|10)(?=つ|年(?!度)|か月|週間|時間|項目|工程|段階|社|店|案|種類)/g, "");
@@ -4891,7 +4919,7 @@ function createDeck(pres, opts = {}) {
     // 見る所の一覧：点検で、画像を見て最初に目が行った所と引き比べる（review-checklist）
     if (opts.focusList !== false) fs.writeFileSync(String(outPath).replace(/\.pptx$/i, "") + ".focus.md", "# 見る所の一覧\n\n画像だけを見て「最初に目が行く所」を答え、下の宣言と合うかを確かめる。合わないページは、強調を直す。\n\n| ページ | タイトル | 見る所（宣言） |\n|---|---|---|\n" + FOCUS.filter(f => f.title).map(f => `| ${f.page} | ${f.title} | ${f.focus === false ? "（列挙。見る所なし）" : f.focus ?? "（宣言なし）"} |`).join("\n") + "\n");
     // 題とリードの一覧：題の言葉と、リードだけを通して読んだ話の通りを確かめる（review-checklist）
-    if (opts.leadList !== false) { const cell = v => String(v || "—").replace(/\n/g, "").replace(/\|/g, "｜"); fs.writeFileSync(String(outPath).replace(/\.pptx$/i, "") + ".leads.md", "# 題とリードの一覧\n\nアジェンダの項目名と題は、日本の会議で普通に言う言葉か、読んで何のことか分かるか（何の？どれ？）を確かめる。\n\n" + (NAV ? `アジェンダの項目名：${NAV.map(n => cell(n.name)).join("／")}\n\n` : "") + "リードだけを上から順に読み、話が通るかを確かめる。2文目があるページは、足したのが判断か次の行動の1つだけで、蛇足でないかを確かめる。疑問の欄は、聴講者として「何を？どれ？どうする？どれくらい？」と問い、答えがリードか同じページの図にあるかを確かめる。無ければリードを直す。\n\n| ページ | タイトル | リード | 聴講者が持ちうる疑問 |\n|---|---|---|---|\n" + LEADS.filter(l => l.title || l.lead).map(l => `| ${l.page} | ${cell(l.title)} | ${cell(l.lead)} | ${l.lead ? l.ask ? cell(l.ask) : "（未記入）" : "—"} |`).join("\n") + "\n"); }
+    if (opts.leadList !== false) { const cell = v => String(v || "—").replace(/\n/g, "").replace(/\|/g, "｜"); fs.writeFileSync(String(outPath).replace(/\.pptx$/i, "") + ".leads.md", "# 題とリードの一覧\n\nページごとに、題・図の見出し（前面の札の見出し）・リードを横に比べる。題は、そのページの図とリードが扱う中身の名前か（「何の？」の答えが、図の見出しかリードにあるか）。結論がまだ出ていないページに、結論を先取りする題が付いていないか。\n\nアジェンダの項目名と題は、日本の会議で普通に言う言葉か、読んで何のことか分かるか（何の？どれ？）を確かめる。\n\n" + (NAV ? `アジェンダの項目名：${NAV.map(n => cell(n.name)).join("／")}\n\n` : "") + "リードだけを上から順に読み、話が通るかを確かめる。2文目があるページは、足したのが判断か次の行動の1つだけで、蛇足でないかを確かめる。疑問の欄は、聴講者として「何を？どれ？どうする？どれくらい？」と問い、答えがリードか同じページの図にあるかを確かめる。無ければリードを直す。\n\n| ページ | タイトル | 図の見出し／札の見出し | リード | 聴講者が持ちうる疑問 |\n|---|---|---|---|---|\n" + LEADS.filter(l => l.title || l.lead).map(l => `| ${l.page} | ${cell(l.title)} | ${cell([...new Set(l.heads), ...l.cards.map(c => `札：${c}`)].join(" ／ "))} | ${cell(l.lead)} | ${l.lead ? l.ask ? cell(l.ask) : "（未記入）" : "—"} |`).join("\n") + "\n"); }
     // ナビゲーションは、テーマの nav か opts.miniNav: true のときだけ描く（章立て nav は、アジェンダとタイトルに使う。現在地はタイトルで分かる）
     if (NAV && opts.miniNav !== false) {
       const baseT = TH.nav || {}, baseStyle = NAV_STYLE, layouts = {};

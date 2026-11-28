@@ -181,12 +181,13 @@ d.roadmap(s, { stages: [
 
 ```js
 const sol = d.series((s, x) => d.processFlow(s, { ...FLOW, ...x }));
-sol.page({ title: "解決策：…", lead: "…", focus: "上の3つの矢羽" });                       // 1枚目：図だけ
-sol.page({ title: "実現性1：…", lead: "…", focus: "「記録する」の列",                      // 2枚目から：同じ図を薄く敷く
+sol.page({ title: "解決策の全体", lead: "…", focus: "上の3つの矢羽" });                       // 1枚目：図だけ
+sol.page({ title: "記録の実現性", lead: "…", focus: "「記録する」の列",                      // 2枚目から：同じ図を薄く敷く
   spot: r => r.col(0),                                                                    //   見る所だけ元の濃さで残す
   box: r => ({ x, y, w, h, head: "1　記録できるか", body: "…", to: [...] }) });            //   前面にメッセージボックスを1つ
 ```
 
+- 題は、同じ図で同じ話題を続けるときだけ同じにする。続きのページで扱う中身が変わるなら、題を変えるか、両方を含む名前にする（SKILL.md の7）
 - `focus`（見る所）は全ページで書く。`spot` は見る所の矩形（図の戻り値から返す関数でよい）。`only` を持つ部品（`processFlow`・`cycleDiagram`・`bizModel` など）は `only` でもよい
 - 続きのページは、ほかのページを挟んでもよい（`series` の戻り値を取っておき、後ろで `page` を呼ぶ）
 - 本文の下端を越える図（`journeyMap`）は、`series(draw, { area: { y, h } })` で覆う範囲を渡す
@@ -199,8 +200,8 @@ sol.page({ title: "実現性1：…", lead: "…", focus: "「記録する」の
 
 ```js
 const market = d.series(s => d.colBars(s, { cats: ["2021年", "2025年", "2026年（見込み）"], series }));  // 1枚目の図。戻り値を返す
-market.page({ lead: "…", focus: "年平均の成長率" });
-market.page({ lead: "伸びの中心は主菜で、4年で+83%。", focus: "前面の主菜の棒と+83%",
+market.page({ title: "個食市場の伸び", lead: "…", focus: "年平均の成長率" });
+market.page({ title: "個食市場の伸び", lead: "伸びの中心は主菜で、4年で+83%。", focus: "前面の主菜の棒と+83%",
   overlay: r => {                                                      // r は1枚目の図の戻り値
     const from = r.span(0, 1), x = from.x + from.w + 0.55;             // 掘り下げる元＝2021・2025年の棒。札はその右の、使わない区分の上
     return { from, x, y: 2.45, w: 12.73 - x, h: 4.15, title: "4年の伸びを種類別に（%）",
@@ -401,9 +402,9 @@ d.summary(s, {
 
 ## 骨格 — `base` / `cover` / `chapter` / `divider` / `agenda`
 
-- `base(title, lead, o)`: 全ページの土台。タイトルは、いまどの話かの項目名だけ（普通に使う言葉で、何のことか分かる名前。SKILL.md の7。`null` にすると、いまの章の項目名になる）、リードは結論1つを言い切る（2行・70字まで。「だ」「である」で結ばず、文末は体言止め（名詞で止めると不自然な依頼などは、動詞のまま可）。タイトルで分かることは書かない。決まりは SKILL.md の11）。`o.ask` に、聴講者が持ちうる疑問と答えの場所を書く（`"どの工程？ → リードの「購買部の確認」"`。文字か配列。画面には出ない。`series` のページは `ask`。リードがあって空だと警告）。`finalize` は、見る所の一覧 `<資料名>.focus.md` と、題とリードの一覧 `<資料名>.leads.md` を書き出す（`createDeck` の `focusList: false`・`leadList: false` で止める）。`o.focus` に見る所を1つ書く（列挙だけのページは `false`）
+- `base(title, lead, o)`: 全ページの土台。タイトルは、そのページの図とリードが扱う中身の名前（普通に使う言葉で、何のことか分かる名前。SKILL.md の7。`null` にすると、いまの章の項目名になる。使うのは中身が章の全体と合うページだけ。題の中心の言葉が図の見出し・札の見出し・リード・図の文字のどこにも無いと警告）、リードは結論1つを言い切る（2行・70字まで。「だ」「である」で結ばず、文末は体言止め（名詞で止めると不自然な依頼などは、動詞のまま可）。タイトルで分かることは書かない。決まりは SKILL.md の11）。`o.ask` に、聴講者が持ちうる疑問と答えの場所を書く（`"どの工程？ → リードの「購買部の確認」"`。文字か配列。画面には出ない。`series` のページは `ask`。リードがあって空だと警告）。`finalize` は、見る所の一覧 `<資料名>.focus.md` と、題・図の見出し（札の見出し）・リードを横に並べた一覧 `<資料名>.leads.md` を書き出す（`createDeck` の `focusList: false`・`leadList: false` で止める）。`o.focus` に見る所を1つ書く（列挙だけのページは `false`）
 - 色: `createDeck` の `theme` で決める。名前（`blue`・`teal`・`green`・`orange`・`purple`・`slate`・`navy`）、強調の色だけ（`{ emph: "2F6BFF" }`）、全部の指定、のどれでも渡せる（`references/tokens.md` の「色の組を差し替える」）。決めないと警告が出る
-- 題の形: 項目名の題＋リードだけ。報告書でも、題に結論の1文を書かない（`titleStyle: "action"` は、指定すると警告が出る）
+- 題の形: 中身の名前の題＋リードだけ。報告書でも、題に結論の1文を書かない（`titleStyle: "action"` は、指定すると警告が出る）
 - フッター: `createDeck` の `footer`。`"page"` は、細い線の下の左に `footerText`（資料名）、右にページ番号（`footerText` を省くとページ番号だけ）。表紙と区切りのページは、ページ番号だけ。`"band"` は下に濃紺の帯（左に `copyright`、中央にページ番号、右に `logo`）
 - `cover`: 既定はタイトルと日付だけ。経営会議用の報告書だけ `kicker`・`sub`・`affil` を足す
 - テーマ（会社・個人の見た目）: `createDeck` の `theme` に既成のテーマの名前（`standard`・`corporate`・`pitch`）か JSON のパスを渡すか、プロジェクトの `.claude/pptx-deck/theme.json`・個人の `~/.claude/pptx-deck/theme.json` に置く（`SKILL.md` の「テーマ」）。項目は `references/tokens.md` の「テーマの設定の項目」。`createDeck` の opts の `font`・`sizes`・`layout`・`cover`・`pageNumber`・`confidential`・`footer`・`footerText`・`copyright`・`logo` は、テーマより優先する。読み込んだ結果は `d.theme` で見られる
