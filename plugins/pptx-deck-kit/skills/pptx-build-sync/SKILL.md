@@ -28,7 +28,7 @@ description: pptxgenjsのbuild.jsでPowerPoint資料（.pptx）を生成・管�
 1. 見せ方は `pptx-deck-design` スキルの `assets/deck-parts.js` と、題材に近い見本（`assets/sample-*.js`）を作業フォルダ（例: `.claude/scripts/<資料名>/`）へコピーして始める。
 2. `OUT`、`LINK`（資料内リンク）、`MINI`・`AGENDA`（ミニ目次・目次）、スライドを書く。ページ番号は `PAGE.キー = page` で記録し、目次は最後に描く（ページ追加で番号がずれない）。見せ方の部品は `deck-parts.js` の `createDeck` を使う（`pptx-deck-design` の SKILL.md）。
    - `pptx-deck-design` の部品（`deck-parts.js`）で作る資料では、章立ては `createDeck` の `nav` に1回だけ書き、アジェンダは `agendaPage`、ページの名前は `base` の `key` で付ける。`MINI`・`AGENDA`・`PAGE.キー` は書かない
-3. 一時フォルダへ出力して確認し、ユーザーの指示があれば本番へ出す。
+3. 一時フォルダへ出力して確認し、ユーザーの指示があれば本番へ出す。`deck-parts.js` は、書き出しの最後に `[警告の合計] N件` を出す。**警告が 0 件になるまで直して書き出し直してから返事をする。直せない警告は、ページと理由を返事に書く。**
 
 ### B. pptx が先に直されている（build.js を追いつかせる）
 
@@ -53,7 +53,7 @@ description: pptxgenjsのbuild.jsでPowerPoint資料（.pptx）を生成・管�
 1. build.js を直す。
 2. 一時フォルダへ出力し、`pptx_inventory.py 一時出力.pptx --slides N` で変更したページを確認する。
 3. 直前の本番ファイルとの `pptx_diff.py` で、意図した変更だけが出ているか見る。
-4. 描画を比べる（下記）。問題がなければ、ユーザーの指示で本番へ出力する。
+4. 描画を比べる（下記）。問題がなければ、ユーザーの指示で本番へ出力する。部品の警告は、ここでも 0 件にする（直せない警告は理由を返事に書く）。
 
 ## 一致の確認
 

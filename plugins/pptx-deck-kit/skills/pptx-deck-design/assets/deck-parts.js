@@ -215,7 +215,10 @@ const OBJ_KEYS = new Set(["type", "x", "y", "w", "h", "color", "line", "transpar
 const BOX_KEYS = new Set(["x", "y", "w", "h", "color", "size", "align", "valign", "bold", "font"]);
 const COVER_KEYS = new Set(["style", "logo", "logoPos", "affil"]);
 const FONT_KEYS = new Set(["face", "heading", "number", "widthScale"]);
-const themeWarn = (src, msg) => console.warn(`[deck-parts] テーマ（${src}）: ${msg}`);
+// 出した警告の数。書き出しの最後に1行で知らせる（0 件になるまで直す）
+let WARNS = 0;
+const deckWarn = (...a) => { WARNS++; console.warn(...a); };
+const themeWarn = (src, msg) => deckWarn(`[deck-parts] テーマ（${src}）: ${msg}`);
 const homeDir = () => process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
 const expandHome = p => (typeof p === "string" && /^~(\/|$)/.test(p) ? path.join(os.homedir(), p.slice(1)) : p);
 // 既成のテーマ（themes/<名前>.json）の置き場所の候補。deck-parts.js のコピー先 → 作業フォルダ → スキル・プラグインの置き場所
@@ -426,7 +429,7 @@ function createDeck(pres, opts = {}) {
     TINT = C.tint; TINT_STRONG = C.strong;
     CAT[4] = C.emph; // 主役の区分の色
   }
-  else console.warn("[deck-parts] 色の組が既定のまま。題材に合わせて theme を決める（名前で選ぶ: " + Object.keys(PALETTES).join("・") + "。または { emph: \"強調の色\" }）。決めた理由を build.js の先頭に書く");
+  else deckWarn("[deck-parts] 色の組が既定のまま。題材に合わせて theme を決める（名前で選ぶ: " + Object.keys(PALETTES).join("・") + "。または { emph: \"強調の色\" }）。決めた理由を build.js の先頭に書く");
   // 書体
   if (TH.font.face) F = String(TH.font.face);
   FHEAD = TH.font.heading ? String(TH.font.heading) : F;
@@ -611,7 +614,7 @@ function createDeck(pres, opts = {}) {
   const PAGE = {};        // 名前 → ページ番号（目次・参照の「P.n」に使う）
   const LATER = [];       // 全ページを作った後に描くもの（目次のページ番号、参照）
   const CHART_PATCH = []; // 書き出し後に XML を直すグラフ
-  const warn = msg => console.warn(`[deck-parts] P.${page} ${msg}`);
+  const warn = msg => deckWarn(`[deck-parts] P.${page} ${msg}`);
   // 改行の点検：1〜2文字だけの行ができそうなら知らせる（語の切れ目で \n を入れるか、言葉を縮める）
   // 2026-11-24 の決まりの記録（形の使い回し・見る所・外部の製品のアイコン）
   const FORM_USE = {};   // 形（部品の名前）→ 最初に使った中身とページ。1つの形は、1つの資料の中で1つの意味にだけ使う
@@ -705,7 +708,7 @@ function createDeck(pres, opts = {}) {
   // 聞き手の前提（2026-11-25）："first-time"＝その事業・製品を初めて聞く（社外、投資家、新しい提案を初めて聞く役員など）／"insider"＝前提を共有済みの内部の人
   //   初見なら、新しい物は「一言で何か」を中央に出すページ（concept）から入り、仕組み・比べる図は次のページから
   const AUD = opts.audience;
-  if (AUD !== undefined && AUD !== "first-time" && AUD !== "insider") console.warn(`[deck-parts] audience は "first-time"（初見）か "insider"（前提を共有済み）にする（${AUD}）`);
+  if (AUD !== undefined && AUD !== "first-time" && AUD !== "insider") deckWarn(`[deck-parts] audience は "first-time"（初見）か "insider"（前提を共有済み）にする（${AUD}）`);
   let CONCEPT_DONE = false;
   const needConcept = name => { if (AUD === "first-time" && !CONCEPT_DONE) warn(`初見の聞き手（audience: "first-time"）に、コンセプトのページより先に仕組みの図（${name}）を出している。先に「一言で何か」を中央に出すページ（concept）を置き、仕組みは次のページから見せる`); };
   // 参照の「P.n」を後で描く（離れた場所の対応を番号で読ませるためではなく、詳細の所在を示すため。10.13）
@@ -835,6 +838,31 @@ function createDeck(pres, opts = {}) {
     if (method === "addTable") (a[0] || []).forEach(row => (row || []).forEach(c => { const o = c && typeof c === "object" && !Array.isArray(c); walk(o ? c.text ?? "" : c, (o && c.options && c.options.fontSize) ?? (a[1] && a[1].fontSize) ?? 18); }));
     return out;
   };
+  // 図の外枠（題・リード・フッター・出典・前面の箱・薄い覆いを除いた図形と文字の範囲）。本文の領域の8割に満たないと知らせる
+  const FIGBOX = {}, NOFILL = new Set(), ROUND = new Set();
+  let inDim = false, inSource = false;
+  const inkBox = (text, o) => {
+    const str = Array.isArray(text) ? text.map(r => ((r && r.text) || "") + (r && r.options && r.options.breakLine ? "\n" : "")).join("") : String(text ?? "");
+    if (!str.trim() && !o.fill && !o.shape && !o.line) return null;
+    if (o.fill || o.shape || o.line) return o;
+    const size = Math.max(o.fontSize ?? 0, ...(Array.isArray(text) ? text.map(r => (r && r.options && r.options.fontSize) || 0) : [0])) || 18;
+    const lines = str.replace(/\n$/, "").split("\n");
+    const w = Math.min(o.w, Math.max(...lines.map(l => textW(l, size)))), h = Math.min(o.h, lines.length * size * 1.2 / 72);
+    return { x: o.align === "center" ? o.x + (o.w - w) / 2 : o.align === "right" ? o.x + o.w - w : o.x, y: o.valign === "middle" ? o.y + (o.h - h) / 2 : o.valign === "bottom" ? o.y + o.h - h : o.y, w, h };
+  };
+  const addFig = b => {
+    if (inChrome || inFooter || inDim || inBox || inSource || !b || ![b.x, b.y, b.w, b.h].every(v => typeof v === "number" && Number.isFinite(v))) return;
+    const f = FIGBOX[page] || (FIGBOX[page] = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity });
+    f.x0 = Math.min(f.x0, b.x); f.y0 = Math.min(f.y0, b.y); f.x1 = Math.max(f.x1, b.x + b.w); f.y1 = Math.max(f.y1, b.y + b.h);
+  };
+  const trackFig = (s, pg) => {
+    const wrap = (m, box) => { const f = s[m].bind(s); s[m] = (...a) => { if (page === pg) addFig(box(a)); return f(...a); }; };
+    wrap("addShape", a => a[1]);
+    wrap("addText", a => (a[1] && inkBox(a[0], a[1])));
+    wrap("addImage", a => a[0]);
+    wrap("addChart", a => (Array.isArray(a[0]) ? a[1] : a[2]));
+    wrap("addTable", a => { const o = a[1] || {}, rows = a[0] || []; return { x: o.x, y: o.y, w: o.w ?? [].concat(o.colW || []).reduce((p, q) => p + q, 0), h: o.h ?? [].concat(o.rowH || 0.4).length > 1 ? [].concat(o.rowH).reduce((p, q) => p + q, 0) : rows.length * [].concat(o.rowH || 0.4)[0] }; });
+  };
   const LEADS = []; // { page, title, lead, ask, fig, big, own（箱を除いた図の文字） }。一覧（.leads.md）と、数字の照合に使う
   // 図の中の文・メッセージボックス・表の文：リードと同じ一覧で、縮められる言い回しを知らせる（同じ文は1回だけ。題とリードは checkLead が見る）
   const HEAD_TEXT = new Set(), WORD_SEEN = new Set();
@@ -881,6 +909,7 @@ function createDeck(pres, opts = {}) {
     FOCUS.push({ page, title, focus: o.focus });
     const fig = [], big = [], own = [];
     LEADS.push({ page, title, lead: lead ? String(lead) : "", ask: [].concat(o.ask || []).join(" ／ "), fig, big, own });
+    trackFig(s, page);
     // 題・リード・フッター・ナビを除いた、図の文字を控える
     ["addText", "addTable", "addChart"].forEach(m => { const f = s[m].bind(s); s[m] = (...a) => { if (!inChrome && !inFooter) { fig.push(...figTexts(m, a)); big.push(...bigTexts(m, a)); if (!inBox) own.push(...figTexts(m, a)); } return f(...a); }; });
     if (title && o.focus === undefined) warn("見る所の宣言がない（base の o.focus に、持ち帰る1つ（最初に目が行くべき要素）を書く。false は、リードが主張を言わないページだけ）");
@@ -1081,6 +1110,7 @@ function createDeck(pres, opts = {}) {
     AGENDA_DONE = true;
     const keep = chapterNow; chapterNow = 0; // アジェンダのページ自体は、どの章にも入れない
     const s = base(o.title || "アジェンダ", null, { key: o.key, focus: false });
+    NOFILL.add(page);
     chapterNow = keep;
     if (NAV.length > 10) warn(`アジェンダの項目が ${NAV.length} 個ある。章をまとめて 7 個前後にする`);
     const n = NAV.length, y0 = 1.75, pitch = Math.min(0.7, (BOTTOM - y0) / n), fsz = pitch < 0.55 ? 18 : 22;
@@ -1147,7 +1177,8 @@ function createDeck(pres, opts = {}) {
   };
 
   // 出典の1行：既定では付けない（既定6）。詳細へ飛ばしたい数値だけ、リンク付きで1行置く（10.9）
-  const source = (s, runs) => T(s, typeof runs === "string" ? runs : runs, { x: M, y: FOOT_TEXT ? Math.min(H - 0.86, Y.source) : Y.source, w: BW, h: 0.3, fontSize: FS.body, color: C.soft, valign: "middle" }); // 出典は要る情報なので、読める大きさと色で // フッターに資料名があるときは、その線の上に置く
+  const source = (s, runs) => { inSource = true; try { return source0(s, runs); } finally { inSource = false; } };
+  const source0 = (s, runs) => T(s, typeof runs === "string" ? runs : runs, { x: M, y: FOOT_TEXT ? Math.min(H - 0.86, Y.source) : Y.source, w: BW, h: 0.3, fontSize: FS.body, color: C.soft, valign: "middle" }); // 出典は要る情報なので、読める大きさと色で // フッターに資料名があるときは、その線の上に置く
 
   // ---- 小部品 ----
   // 塗りの右矢印（既定 gray、枠なし）。文字の「→」を混ぜない
@@ -1275,6 +1306,7 @@ function createDeck(pres, opts = {}) {
   //   o: { x, y（既定 BODY）, w（既定 BW）, h（既定は本文の下端まで）, fs（既定 15）, headFs（既定 17）, numbered（番号を付ける）, gap（項目の間 pt、既定 fs×0.9） }
   //   項目が少なく下に空きが出るときは、文字を上げるより gap を広げ、h を本文の下端までにして上下の重心をそろえる
   const bullets = (s, items, o = {}) => {
+    NOFILL.add(page); // 箇条書きは図ではない
     const fs = o.fs ?? 20, hfs = o.headFs ?? 22, gap = o.gap ?? fs * 0.9; // 案B
     const runs = []; let n = 0;
     const item = t => { n++; runs.push({ text: t, options: { fontSize: fs, color: C.ink, bullet: o.numbered ? { type: "number", indent: fs * 1.4 } : { indent: fs * 1.1 }, paraSpaceAfter: gap, breakLine: true } }); };
@@ -1372,7 +1404,8 @@ function createDeck(pres, opts = {}) {
 
   // ---- 重ね技 ----
   // 前ページと同じ図を同じ関数・同じ座標で描いた上に、白の半透明を重ねて薄くする（transparency 18〜30）。前面に吹き出し・メッセージを置く
-  const overlay = (s, x = 0, y = 2.15, w = W, h = BOTTOM - 2.15, transparency = 30) => (ECHOED.add(page), s.addShape(SH.RECTANGLE, { x, y, w, h, fill: { color: PAGE_BG(), transparency }, line: { type: "none" } }));
+  const overlay0 = (s, x = 0, y = 2.15, w = W, h = BOTTOM + 0.08 - 2.15, transparency = 30) => (ECHOED.add(page), s.addShape(SH.RECTANGLE, { x, y, w, h, fill: { color: PAGE_BG(), transparency }, line: { type: "none" } }));
+  const overlay = (...a) => { const was = inDim; inDim = true; try { return overlay0(...a); } finally { inDim = was; } };
   // 前面の吹き出し：白箱に赤 1.25 枠＋弱い影、赤の番号丸、見出し bold＋起きたこと soft。引き出し線で図中の位置（赤の番号丸）を指す（4.8）
   //   o: { x, y, w, h, no, head, body, to: [x, y]（指す位置）, from: [x, y]（線の出どころ。既定は箱の下辺中央）, refKey（右下に「P.n」） , refPrefix }
   const callout = (s, o) => { noteBox(o); inBox = true; try { callout0(s, o); } finally { inBox = false; } };
@@ -1438,16 +1471,31 @@ function createDeck(pres, opts = {}) {
     // spot：見る所の矩形（{x, y, w, h} か、図の戻り値から矩形を返す関数）。そこだけ覆わず、元の濃さで残す。only を持たない部品でも使える。見る所は1つなので、矩形も1つ
     const hole = typeof o.spot === "function" ? o.spot(r) : o.spot;
     if (hole) {
-      const ax = a.x ?? 0, ay = a.y ?? 2.15, aw = a.w ?? W, ah = a.h ?? BOTTOM - 2.15, t = o.transparency ?? 25, pd = 0.06;
-      const hx = Math.max(ax, hole.x - pd), hy = Math.max(ay, hole.y - pd), hx2 = Math.min(ax + aw, hole.x + hole.w + pd), hy2 = Math.min(ay + ah, hole.y + hole.h + pd);
-      [[ax, ay, aw, hy - ay], [ax, hy2, aw, ay + ah - hy2], [ax, hy, hx - ax, hy2 - hy], [hx2, hy, ax + aw - hx2, hy2 - hy]].forEach(([x, y, w, h]) => { if (w > 0.005 && h > 0.005) overlay(s, x, y, w, h, t); });
+      // 残す形は、矩形1つか、parts（colBars の span の棒・値・区分名）。横の帯に分け、残す所を除いて覆う
+      const ax = a.x ?? 0, ay = a.y ?? 2.15, aw = a.w ?? W, ah = a.h ?? BOTTOM + 0.08 - 2.15, t = o.transparency ?? 25, pd = 0.06;
+      const hs = (hole.parts || [hole]).map(p => ({ x: Math.max(ax, p.x - pd), y: Math.max(ay, p.y - pd), x2: Math.min(ax + aw, p.x + p.w + pd), y2: Math.min(ay + ah, p.y + p.h + pd) })).filter(p => p.x2 > p.x && p.y2 > p.y);
+      const ys = [...new Set([ay, ay + ah, ...hs.flatMap(p => [p.y, p.y2])])].sort((p, q) => p - q);
+      const bands = [];
+      for (let i = 0; i + 1 < ys.length; i++) {
+        const y1 = ys[i], y2 = ys[i + 1], segs = [];
+        let x = ax;
+        hs.filter(p => p.y <= y1 + 1e-6 && p.y2 >= y2 - 1e-6).sort((p, q) => p.x - q.x).forEach(p => { if (p.x > x) segs.push([x, p.x]); x = Math.max(x, p.x2); });
+        if (x < ax + aw) segs.push([x, ax + aw]);
+        const key = JSON.stringify(segs), last = bands[bands.length - 1];
+        if (last && last.key === key) last.y2 = y2; else bands.push({ key, segs, y1, y2 });
+      }
+      bands.forEach(({ segs, y1, y2 }) => segs.forEach(([x1, x2]) => { if (x2 - x1 > 0.005 && y2 - y1 > 0.005) overlay(s, x1, y1, x2 - x1, y2 - y1, t); }));
     } else overlay(s, a.x, a.y, a.w, a.h, o.transparency ?? 25);
     if (o.keep) o.keep(s, r);
     return r;
   };
   // 前面の札：続きのページの前面に、2つ目の図を白い札に載せて重ねる（2026-11-28。関連する2つの論点が1つの図に収まらないとき）
-  //   c: { x, y, w, h（本文の領域の中。目安は幅 4.5〜6.5・高さ 3.2〜4.2）, title?（何の図か。1行）, draw: (s, rect) => …,
-  //        clear?（隠してはいけない下の図の要素 { x, y, w, h }。掘り下げる棒など） }
+  //   c: { x, y, w, h（本文の領域の中。目安は幅 4.5〜6.5・高さ 3.2〜4.4。下端は本文の下端まで使ってよい）, title?（何の図か。1行）, draw: (s, rect) => …,
+  //        from（掘り下げる元の下の図の要素 { x, y, w, h }。そこは元の濃さで残し、札への矢印を部品が引く。colBars の span(i, j)・hBars の row(i, j) で作る）,
+  //        arrowAt?（矢印の位置。横向きなら y、縦向きなら x。既定は from と札が向き合う範囲の中央）,
+  //        ref?（札の中の図に引く基準線 { value, label }。全体の値など。例 { value: 61, label: "全体 +61%" }。draw は colBars か hBars の戻り値を返す）,
+  //        clear?（ほかにも隠してはいけない下の図の要素） }
+  //   札は from に重ねない（重なると止まる）。話に使わない区分の上か、空いた側に置き、from の横か上下に 0.3 以上空ける
   //   rect: { x, y, w, h（札の中の描ける範囲）, cols: { x0, x1, top, bottom }（colBars に展開して渡す）, rows: { x0, x1, y0, bottom }（hBars に展開して渡す） }
   //   下の図は薄いので、見る所は前面だけ：下の図の主役の値は数えず、前面の図に見る所の値を1つ置く
   const frontCard = (s, c) => {
@@ -1455,6 +1503,10 @@ function createDeck(pres, opts = {}) {
     if (![x, y, w, h].every(Number.isFinite) || typeof draw !== "function") throw new Error("前面の札（overlay）には x・y・w・h と draw が要る");
     if (x < M - 0.01 || x + w > W - M + 0.01 || y < BODY - 0.01 || y + h > BOTTOM + 0.01) warn(`前面の札（${name}）が本文の領域からはみ出す（x ${M}〜${(W - M).toFixed(2)}、y ${BODY}〜${BOTTOM} の中に置く）`);
     const hit = b => b && x < b.x + b.w && b.x < x + w && y < b.y + b.h && b.y < y + h;
+    const from = c.from;
+    if (from && ![from.x, from.y, from.w, from.h].every(Number.isFinite)) throw new Error(`前面の札（${name}）の from は { x, y, w, h } で渡す`);
+    if (from && (from.parts || [from]).some(hit)) throw new Error(`前面の札（${name}）が、掘り下げる元の要素（from）に重なる。札を、話に使わない区分の上か空いた側へ移すか、小さくする`);
+    if (!from) warn(`前面の札（${name}）に from が無い。掘り下げる元の要素を from（矩形）で渡す。渡さないと下の図が全部薄くなり、どこの話かが分からない`);
     if (!ECHOED.has(page)) warn(`前面の札（${name}）は、同じ図を薄く敷いた続きのページ（series の overlay か、echo の後）で使う。図の横に別の図を足さない`);
     if (hit(c.clear)) warn(`前面の札（${name}）が、隠してはいけない下の図の要素（clear）に重なる。札を空いた側・値の小さい側へ移すか、小さくする`);
     // 下の図の主役の値（文字の範囲は、字の幅と寄せから見積もる）
@@ -1473,11 +1525,53 @@ function createDeck(pres, opts = {}) {
       T(s, name, { x: ix, y: y + 0.1, w: iw, h: 0.36, fontSize: FS.head, bold: true, valign: "middle", wrap: false });
     }
     const iy = y + (title ? 0.55 : PAD.y), ih = y + h - PAD.y - iy;
-    return draw(s, {
+    // 掘り下げる元から札へ、矢印を水平か垂直に引く
+    if (from) {
+      const ya = Math.max(y, from.y), yz = Math.min(y + h, from.y + from.h), xa = Math.max(x, from.x), xz = Math.min(x + w, from.x + from.w);
+      const side = yz - ya > 0.1 && (x >= from.x + from.w || x + w <= from.x), stack = xz - xa > 0.1 && (y >= from.y + from.h || y + h <= from.y);
+      if (!side && !stack) warn(`前面の札（${name}）が、掘り下げる元（from）の横にも上下にも無く、矢印をまっすぐ引けない。札を from と向き合う位置に置く`);
+      else {
+        const at = c.arrowAt ?? (side ? (ya + yz) / 2 : (xa + xz) / 2);
+        const p0 = side ? [x >= from.x + from.w ? from.x + from.w + 0.02 : from.x - 0.02, at] : [at, y >= from.y + from.h ? from.y + from.h + 0.02 : from.y - 0.02];
+        const p1 = side ? [x >= from.x + from.w ? x - 0.01 : x + w + 0.01, at] : [at, y >= from.y + from.h ? y - 0.01 : y + h + 0.01];
+        if (Math.abs(p1[0] - p0[0]) + Math.abs(p1[1] - p0[1]) < 0.2) warn(`前面の札（${name}）と掘り下げる元（from）の間が狭く、矢印が見えない。0.3 以上空ける`);
+        else polyArrow(s, [p0, p1], { color: C.emph, width: 2 });
+      }
+    }
+    // 札の中の基準線：図を描く前に、線の名前の場所を空ける（縦棒は右の列、横棒は上の段）
+    const rf = c.ref, rl = rf ? String(rf.label ?? "").split("\n") : [];
+    // 縦棒では線の名前を右の列に置くので、長い1行は数値の前で2行に分けて、棒の幅を残す
+    const cut = rl.length === 1 && textW(rl[0] || "", FS.body) > 1.4 ? rl[0].match(/^(.*?\S)\s*([+＋−-]?[0-9０-９][^ 　]*)$/) : null;
+    const cl = cut ? [cut[1], cut[2]] : rl;
+    const wide = ls => Math.max(0, ...ls.map((l, i) => textW(l, FS.body) * (i ? 1 : 1.05))) + 0.12;
+    const rw = rf ? wide(cl) : 0, rh = rf ? rl.length * lineH(FS.body, 1.1) : 0, ch = rf ? cl.length * lineH(FS.body, 1.1) : 0;
+    if (rf && (!Number.isFinite(rf.value) || !/[0-9０-９]/.test(rl.join("")))) warn(`前面の札（${name}）の基準線は、value（数値）と、値を書いた label を渡す（例 { value: 61, label: "全体 +61%" }）`);
+    const rect0 = {
       x: ix, y: iy, w: iw, h: ih,
-      cols: { x0: ix, x1: ix + iw, top: iy + 0.45, bottom: iy + ih - 0.62 },
-      rows: { x0: ix, x1: ix + iw, y0: iy + 0.1, bottom: iy + ih },
-    });
+      cols: { x0: ix, x1: ix + iw - (rf ? rw : 0), top: iy + 0.45, bottom: iy + ih - 0.62 },
+      rows: { x0: ix, x1: ix + iw, y0: iy + 0.1 + (rf ? rh : 0), bottom: iy + ih },
+    };
+    const g = draw(s, rect0);
+    if (rf && Number.isFinite(rf.value)) {
+      const runs = ls => ls.map((l, i) => ({ text: l, options: { bold: !i || cl !== rl, color: i && cl === rl ? C.soft : C.ink, breakLine: i < ls.length - 1 } }));
+      const dash = { color: C.ink, width: 1.25, dashType: "dash" };
+      // 基準線は、値の字の所で切る（字を横切らせない）。gaps：線が通れない区間
+      const pieces = (a, z, gaps) => { const out = []; let p = a; gaps.sort((u, v) => u[0] - v[0]).forEach(([u, v]) => { if (u - p > 0.04) out.push([p, Math.min(u, z)]); p = Math.max(p, v); }); if (z - p > 0.04) out.push([p, z]); return out; };
+      if (g && g.barX && Number.isFinite(g.base)) {
+        const ly = g.base - rf.value * g.k;
+        if (ly - ch - 0.04 < iy - 0.05 || ly > g.base + 0.01) warn(`前面の札（${name}）の基準線（${rf.value}）が、図の外に出る。colBars の max を基準線の値より大きくする`);
+        pieces(ix, ix + iw, (g.texts || []).filter(b => b.y - 0.03 < ly && ly < b.y + b.h + 0.03).map(b => [b.x - 0.05, b.x + b.w + 0.05])).forEach(([a, z]) => s.addShape(SH.LINE, { x: a, y: ly, w: z - a, h: 0, line: dash }));
+        T(s, runs(cl), { x: ix + iw - rw, y: ly - ch - 0.04, w: rw, h: ch, fontSize: FS.body, align: "right", valign: "bottom", lineSpacingMultiple: 1.0, wrap: false });
+      } else if (g && g.ys && Number.isFinite(g.Z)) {
+        const lx = g.Z + rf.value * g.k;
+        if (lx < ix - 0.01 || lx > ix + iw + 0.01) warn(`前面の札（${name}）の基準線（${rf.value}）が、図の外に出る`);
+        const top = rect0.rows.y0 - 0.04, bot = Math.min(iy + ih, g.ys[g.ys.length - 1] + g.bh + 0.08);
+        pieces(top, bot, (g.texts || []).filter(b => b.x - 0.05 < lx && lx < b.x + b.w + 0.05).map(b => [b.y - 0.04, b.y + b.h + 0.04])).forEach(([a, z]) => s.addShape(SH.LINE, { x: lx, y: a, w: 0, h: z - a, line: dash }));
+        const hw = wide(rl), hx = Math.max(ix, Math.min(ix + iw - hw, lx - hw / 2));
+        T(s, runs(rl), { x: hx, y: top - rh - 0.02, w: hw, h: rh, fontSize: FS.body, align: "center", valign: "bottom", lineSpacingMultiple: 1.0, wrap: false });
+      } else warn(`前面の札（${name}）の基準線（ref）は、draw が colBars か hBars の戻り値を返すときに引ける（draw を (s, rect) => d.colBars(…) の形にする）`);
+    }
+    return g;
   };
   // 同じ図の続きページ：1つの図で2つ以上を言うときは、図を1回だけ書き、言うことの数だけページを出す（1ページ1メッセージ）
   //   drawFig: (s, extra) => 部品の戻り値。extra は { only } など、部品の引数に足すもの（例: (s, x) => d.processFlow(s, { ...FLOW, ...x })）
@@ -1493,9 +1587,14 @@ function createDeck(pres, opts = {}) {
       const first = n++ === 0, front = p.spot || p.only || p.keep || p.box || p.overlay;
       if (p.plain || (first && !front)) return { s, r: drawFig(s, {}) };
       const keep = p.keep ? (s2, r2) => p.keep(s2, r2) : p.only ? s2 => drawFig(s2, { only: p.only }) : undefined;
-      const r = echo(s, s2 => drawFig(s2, {}), { area: so.area, transparency: so.transparency, check: so.check, spot: p.spot, keep });
+      // overlay の from（掘り下げる元）は、覆わずに元の濃さで残す
+      let card;
+      const cardOf = r2 => card || (card = typeof p.overlay === "function" ? p.overlay(r2) : p.overlay);
+      if (p.overlay && p.spot) warn("同じ図の続きのページ：overlay と spot を同時に渡さない。元の濃さで残すのは、overlay の from の1か所");
+      const spot = p.overlay ? r2 => cardOf(r2).from ?? (typeof p.spot === "function" ? p.spot(r2) : p.spot) : p.spot;
+      const r = echo(s, s2 => drawFig(s2, {}), { area: so.area, transparency: so.transparency, check: so.check, spot, keep });
       if (!so.check && p.box) [].concat(typeof p.box === "function" ? p.box(r) : p.box).forEach(b => messageBox(s, b));
-      if (!so.check && p.overlay) frontCard(s, typeof p.overlay === "function" ? p.overlay(r) : p.overlay);
+      if (!so.check && p.overlay) frontCard(s, cardOf(r));
       return { s, r };
     };
     return { page: one, pages: ps => ps.map(one) };
@@ -1697,27 +1796,27 @@ function createDeck(pres, opts = {}) {
     if (over) warn(`${name}：項目名が欄に入らない（${over[0]}）。名前を縮めるか、labelW を広げる`);
     return lw;
   };
-  // 横に伸びる棒の太さと行の間隔：文字の大きさから決める（太さは本文の高さの1.15〜1.6倍、間は太さの半分ほど）
+  // 図は本文の領域を使い切る（2026-11-28）。区分が少なくても中央に縮めない：行の間隔・区分の幅は領域を割って決め、
+  // 棒の太さには上限を置いて、残りは区分の間にする
+  const BAR_H_MAX = 0.75, BAR_W_MAX = 1.8, BAR_W_MAX_PAIR = 1.1;
+  // 横に伸びる棒の太さと行の間隔。pitch は領域の高さ÷行数、太さは間隔の 0.6 倍まで（間は太さの 0.5〜1 倍の目安）
   const barRows = (name, room, o) => {
     const t = FS.body / 72;
-    const bh = o.bh ?? (o.pitch != null ? Math.min(o.pitch / 1.55, t * 1.6) : Math.max(t * 1.15, Math.min(t * 1.6, room / 1.55)));
-    const pitch = o.pitch ?? Math.max(bh * 1.25, Math.min(room, bh * 1.55));
-    if (o.bh != null && o.bh > t * 1.65) warn(`${name}：棒が太い（bh ${o.bh}）。指定（bh・pitch）を外すと、文字の大きさから決まる（余白は残してよい）`);
+    const pitch = o.pitch ?? Math.max(t * 1.5, room);
+    const bh = o.bh ?? Math.max(t * 1.15, Math.min(BAR_H_MAX, pitch * 0.62));
+    if (o.bh != null && o.bh > BAR_H_MAX + 0.05) warn(`${name}：棒が太い（bh ${o.bh}）。指定（bh・pitch）を外すと、行の数から決まる`);
     else if (o.bh != null || o.pitch != null) {
       const r = (pitch - bh) / bh;
-      if (r < 0.2 || r > 1.05) warn(`${name}：棒の間（${(pitch - bh).toFixed(2)}）が、棒の太さ（${bh.toFixed(2)}）の${r < 0.2 ? "4分の1より狭い" : "幅より広い"}。指定（bh・pitch）を外すと、文字の大きさから決まる`);
+      if (r < 0.2 || (r > 1.05 && bh < BAR_H_MAX - 0.01)) warn(`${name}：棒の間（${(pitch - bh).toFixed(2)}）が、棒の太さ（${bh.toFixed(2)}）の${r < 0.2 ? "4分の1より狭い" : "幅より広い"}。指定（bh・pitch）を外すと、行の数から決まる`);
     }
     return { bh, pitch };
   };
-  // 縦の棒の太さと区分の幅：区分が少ないときは図を狭めて中央に置き、区分の間を棒より広げない。x0 と x1 の両方を渡したときは、その幅を使う
-  const colSlot = (name, { x0, x1, n, nS = 1, gap = 0, bw, needW = 0, fill = false }) => {
-    const avail = (x1 - x0) / n;
-    const w = bw ?? Math.max(0.2, Math.min(nS > 1 ? 0.65 : 1.0, (avail * 0.65 - gap * (nS - 1)) / nS));
-    const gw = w * nS + gap * (nS - 1);
-    const slot = fill ? avail : Math.min(avail, Math.max(gw * (nS > 1 ? 1.5 : 1.6), needW));
-    if (bw != null && bw > 1.05) warn(`${name}：棒が太い（bw ${bw}）。指定を外すと、区分の数から決まる`);
-    const xs = x0 + ((x1 - x0) - slot * n) / 2;
-    return { bw: w, slot, x0: xs, x1: xs + slot * n };
+  // 縦に伸びる棒の太さと区分の幅。区分の幅は x0〜x1 を区分の数で割る
+  const colSlot = (name, { x0, x1, n, nS = 1, gap = 0, bw }) => {
+    const slot = (x1 - x0) / n, cap = nS > 1 ? BAR_W_MAX_PAIR : BAR_W_MAX;
+    const w = bw ?? Math.max(0.2, Math.min(cap, (slot * 0.65 - gap * (nS - 1)) / nS));
+    if (bw != null && bw > cap + 0.05) warn(`${name}：棒が太い（bw ${bw}）。指定を外すと、区分の数から決まる`);
+    return { bw: w, slot, x0, x1 };
   };
 
   const figHead = (s, text, legend, o = {}) => {
@@ -1736,7 +1835,7 @@ function createDeck(pres, opts = {}) {
   //   o.cats: [区分名], o.series: [{ name, color, values, main? }]（main＝主役の系列。値を太字・一段大きく）
   //   o.focus: [[系列の番号, 区分の番号], ...]（その棒だけ濃紺にし、値を主役の値 36pt で棒の真上に描く。単系列でも対の棒でも使える。
   //     対の棒で文字が隣の棒・値に重なるときは、重ならない所まで上げる。呼ぶ側で値を空にして focusValue を手で置かない）
-  //   o.x0, o.x1（既定 M+0.7〜W−M−0.6）, o.top, o.bottom（棒の領域。既定 2.85〜5.85）, o.min, o.max（既定はデータから）, o.bw, o.gap, o.fmt
+  //   o.x0, o.x1（既定は本文の幅いっぱい）, o.top, o.bottom（棒の領域。既定 2.85〜5.85）, o.min, o.max（既定はデータから）, o.bw, o.gap, o.fmt
   //   o.cagr: { from, to, years?, label?, j? }（年平均成長率。from・to の棒を上で矢印につなぎ、「年平均 +x%（from→to の n 年）」を書く。率は値から計算する。cagrBars）
   //   戻り値: { barX(j, i), barTop(j, i), cx(i), base, k } … 重ね技で前面から指す位置に使う
   const colBars = (s, o) => {
@@ -1757,7 +1856,7 @@ function createDeck(pres, opts = {}) {
     const gap = o.gap ?? 0.08;
     const labW = Math.max(...o.cats.map(c => textW(c, FS.body))) + 0.25;
     const valW = o.values === false ? 0 : Math.max(...all.map(v => textW(fmt(v), FS.head))) + 0.15;
-    const { bw, slot, x0, x1 } = colSlot("縦棒", { x0: o.x0 ?? M + 0.7, x1: o.x1 ?? W - M - 0.6, n: nC, nS, gap, bw: o.bw,
+    const { bw, slot, x0, x1 } = colSlot("縦棒", { x0: o.x0 ?? M, x1: o.x1 ?? W - M, n: nC, nS, gap, bw: o.bw,
       needW: Math.max(labW, nS === 1 ? valW : 0, o.focus ? textW(fmt(all.reduce((a, b) => Math.abs(b) > Math.abs(a) ? b : a, 0)), o.focusFs ?? FOCUS_FS) + 0.15 : 0), fill: o.x0 != null && o.x1 != null });
     const gw = bw * nS + gap * (nS - 1);
     rangeBar("縦棒", all.map(v => fmt(v)));
@@ -1826,6 +1925,8 @@ function createDeck(pres, opts = {}) {
       }
     }));
     o.cats.forEach((c, i) => T(s, c, { x: x0 + i * slot, y: bottom + 0.3, w: slot, h: 0.3, fontSize: FS.body, color: C.soft, align: "center", wrap: false }));
+    { const long = o.cats.find(c => textW(c, FS.body) > slot - 0.02);
+      if (long && nC > 1) warn(`縦棒：区分名「${long}」が区分の幅に入らず、隣と重なる（名前を縮めるか、図の幅を広げる。前面の札なら札を広くするか、横棒（hBars）にする）`); }
     hline(s, x0, base, x1 - x0, { color: C.gray });
     namePlaces().forEach(p => {
       if (p.y < LIM - 0.02) warn(`縦棒の系列の名前（${p.sr.name}）が、棒の上に入らない（o.max を広げる）`);
@@ -1851,7 +1952,19 @@ function createDeck(pres, opts = {}) {
         if (yl - 0.66 < top - 0.3) warn("年平均成長率（cagr）の文字が図の上端を超える。o.max を上げる");
       }
     }
-    return { barX, barTop, cx: i => x0 + i * slot + slot / 2, base, k, bw };
+    // span(i, j)：i〜j の区分の棒・値・区分名（札の from に使う）。x・y・w・h は棒と区分名の範囲（矢印の起点）、parts は元の濃さで残す範囲（値の文字が棒より広くても、隣の区分を巻き込まない）
+    const span = (i, j = i) => {
+      const body = [], parts = [], union = bx => { const a = Math.min(...bx.map(b => b.x)), t = Math.min(...bx.map(b => b.y)); return { x: a, y: t, w: Math.max(...bx.map(b => b.x + b.w)) - a, h: Math.max(...bx.map(b => b.y + b.h)) - t }; };
+      for (let q = i; q <= j; q++) {
+        const cx = x0 + q * slot + slot / 2, cw = textW(o.cats[q], FS.body);
+        const col = [{ x: cx - cw / 2, y: bottom + 0.3, w: cw, h: 0.3 }, ...ser.map((_, m) => BAR[`${m}:${q}`])];
+        body.push(...col); parts.push(union(col));
+        if (o.values !== false) ser.forEach((_, m) => parts.push(LAB[`${m}:${q}`]));
+      }
+      if (i === 0) namePlaces().forEach(p => parts.push({ x: p.x, y: p.y, w: p.w, h: nameH }));
+      return { ...union(body), parts };
+    };
+    return { barX, barTop, cx: i => x0 + i * slot + slot / 2, base, k, bw, span, texts: o.values === false ? [] : Object.values(LAB) };
   };
   // 横棒（図形）：0の線から左右に伸ばす。項目の名前が長い、正負が混ざる、全体と内訳を並べるときに使う
   //   o.rows: [{ label, value, strong?, focusValue?, problem? } | null（行の間を空ける）], o.groups: [{ from, to, text }]（連続した行をまとめた注記。空いた側に縦線と文字）
@@ -1878,7 +1991,11 @@ function createDeck(pres, opts = {}) {
     const k = (right - left) / (maxP + maxN || 1), Z = left + maxN * k;
     const ys = []; let y = o.y0 ?? 2.6;
     let { bh, pitch } = barRows("横棒", (END - y) / rows.reduce((a, r) => a + (r ? 1 : 0.5), 0), o);
-    rows.forEach(r => { ys.push(y); y += r ? pitch : pitch / 2; });
+    // 行は高さいっぱいに配る。上下の余白は小さく取り（0.3 まで）、残りは行の間に入れる（行が少なくても中央に寄せない）
+    const units = rows.reduce((a, r) => a + (r ? 1 : 0.5), 0), fill = o.pitch == null && units > 1;
+    const edge = o.pitch == null ? Math.max(0, Math.min((pitch - bh) / 2, fill ? 0.3 : Infinity)) : 0;
+    const step = fill ? (END - y - 2 * edge - bh) / (units - 1) : pitch;
+    rows.forEach(r => { ys.push(y + (r ? edge : 0)); y += r ? step : step / 2; });
     const OBS = []; // 棒と値の文字の範囲（主役の値の重なりの点検）
     rows.forEach((r, i) => {
       if (!r) return;
@@ -1889,11 +2006,11 @@ function createDeck(pres, opts = {}) {
       if (fv) {
         const tw = textW(vt, FOCUS_FS), cy = yy + bh / 2, tr = { x: pos ? Z + w + 0.1 : Z - w - 0.1 - tw, y: cy - FOCUS_FS / 144, w: tw, h: FOCUS_FS / 72, i, fv: true };
         focusValue(s, vt, { x: pos ? tr.x : tr.x - 0.1, y: cy - 0.25, w: tw + 0.1, align: pos ? "left" : "right" }, { problem: r.problem });
-        OBS.push(tr, { x: r.value >= 0 ? Z : Z - w, y: yy, w, h: bh, i });
+        OBS.push({ ...tr, txt: true }, { x: r.value >= 0 ? Z : Z - w, y: yy, w, h: bh, i });
       } else {
         T(s, vt, { x: pos ? Z + w + 0.08 : Z - w - 0.08 - valW, y: yy, w: valW, h: bh, fontSize: st ? FS.head : FS.body, bold: st, color: st ? C.ink : C.soft, align: pos ? "left" : "right", valign: "middle", wrap: false });
         const fs = st ? FS.head : FS.body, tw = textW(vt, fs);
-        OBS.push({ x: pos ? Z + w + 0.08 : Z - w - 0.08 - tw, y: yy + bh / 2 - fs / 144, w: tw, h: fs / 72, i }, { x: pos ? Z : Z - w, y: yy, w, h: bh, i });
+        OBS.push({ x: pos ? Z + w + 0.08 : Z - w - 0.08 - tw, y: yy + bh / 2 - fs / 144, w: tw, h: fs / 72, i, txt: true }, { x: pos ? Z : Z - w, y: yy, w, h: bh, i });
       }
     });
     OBS.filter(b => b.fv).forEach(b => {
@@ -1912,7 +2029,12 @@ function createDeck(pres, opts = {}) {
       if (lineCount(g.text, FS.block, Math.max(tw, 0.5)) * lineH(FS.block) > gh + 0.1) warn(`横棒の群の注記（${String(g.text).slice(0, 12)}…）が、群の右の空きに入らない（注記を縮めるか、群の行を増やす）`);
     });
     if (last > END + 0.05) warn(`横棒の下端 ${last.toFixed(2)} が${o.bottom != null ? "指定の下端" : "本文の下端"}を超える`);
-    return { ys, Z, k, bh };
+    // row(i, j)：i〜j 行目の項目名・棒・値を、外側でまとめて囲む矩形（札の from に使う）
+    const row = (i, j = i) => {
+      const part = OBS.filter(b => b.i >= i && b.i <= j), z = Math.max(Z, ...part.map(b => b.x + b.w)) + 0.06;
+      return { x: X0 - 0.04, y: ys[i] - 0.06, w: z - X0 + 0.04, h: ys[j] + bh - ys[i] + 0.12 };
+    };
+    return { ys, Z, k, bh, row, texts: OBS.filter(b => b.txt) };
   };
   // 帯でつなぐ積み上げ棒（配分の推移）：棒の高さは総量に比例、同じ区分を隣の期と帯でつなぐ。区分名は右端の棒の横に置き、凡例は置かない
   //   o.cats: [期], o.series: [{ name, color, values, main? }]（下から積む順。main の区分は名前を太字に）
@@ -1967,6 +2089,7 @@ function createDeck(pres, opts = {}) {
   //   見る所は自社の行（strong）か statement。base の focus に書く
   const concept = (s, o) => {
     CONCEPT_DONE = true;
+    if (!o.contrast) NOFILL.add(page); // 一言のコンセプトは図ではない
     const st = String(o.statement || ""), key = o.key;
     if (!st) warn("コンセプト：一言のコンセプト（statement）を書く。属性ではなく、価値（何が、何と比べてどう違うか）を言う");
     if (st.length > 30) warn(`コンセプト：一言が長い（${st.length}字）。全角30字までに縮める。一言で言えないなら、何が価値なのかを決め直す`);
@@ -1988,7 +2111,12 @@ function createDeck(pres, opts = {}) {
     // 一文はマジックワード（短い言い切り）。短ければ大きく出す
     const SFS = st.length <= 16 ? 44 : 30;
     T(s, runs.map(r => ({ text: r.text, options: { fontSize: SFS, bold: true, color: C.ink, ...(r.options || {}) } })), { x: M, y: 1.7, w: BW, h: SFS > 40 ? 1.0 : 0.75, align: "center", valign: "middle" });
-    const rows = ct.rows || [], n = rows.length, x0 = M + 2.9, x1 = W - M - 2.0, y0 = SFS > 40 ? 3.9 : 3.55, pitch = Math.min(0.95, 2.7 / Math.max(n, 1)), bh = 0.42, X = t => x0 + (x1 - x0) * t;
+    const rows = ct.rows || [], n = rows.length, y0 = SFS > 40 ? 3.9 : 3.55, pitch = (BOTTOM - y0) / Math.max(n, 1), bh = Math.min(BAR_H_MAX, pitch * 0.55), inset = (pitch - bh) / 2;
+    // 横は、行の名前の分だけ空けて、本文の右端まで使う。自社の帯が長いときは、右に主役の語の幅を残す
+    const x0 = M + Math.max(1.2, ...rows.map(r => textW(r.name || "", FS.head))) + 0.25;
+    const st1 = rows.find(r => r.strong), topV = Math.max(...rows.map(r => r.value).filter(v => typeof v === "number"), ...(ct.ticks || []).map(t => t.value).filter(v => typeof v === "number"), ct.max ?? 0);
+    const bigRoom = st1 && st1.big && typeof st1.value === "number" && topV > 0 && st1.value / topV > 0.5 ? textW(String(st1.big), FOCUS_FS) + 0.25 : 0.45;
+    const x1 = W - M - (rows.some(r => r.result !== undefined) ? 2.0 : bigRoom), X = t => x0 + (x1 - x0) * t;
     if (rows.filter(r => r.strong).length !== 1) warn("コンセプトの対比：自社の行（strong）を1つだけ決める");
     if (n !== 2) warn(`コンセプトの対比：比べるのは、相手1つと自社の2行だけ（${n} 行）。コンセプトは一点突破。相手を増やすと、何が突き抜けているかが薄まる`);
     if (rows.some(r => r.result !== undefined)) warn("コンセプトの対比：右端の結果の値（result）を足さない。2つ目の価値になる。伝える価値は1つだけ（物差しの差そのもの）");
@@ -2010,19 +2138,20 @@ function createDeck(pres, opts = {}) {
       return null;
     };
     (ct.ticks || []).map(tk => ({ ...tk, at: byValue(tk.value) ? posOf(tk.value) : tk.at })).filter(tk => isNum(tk.at)).forEach(tk => {
-      s.addShape(SH.LINE, { x: X(tk.at), y: y0 - 0.35, w: 0, h: pitch * n - 0.1, line: { color: C.line, width: 1 } });
+      s.addShape(SH.LINE, { x: X(tk.at), y: y0 - 0.35, w: 0, h: pitch * n + 0.35, line: { color: C.line, width: 1 } });
       T(s, tk.label, { x: X(tk.at) - 0.6, y: y0 - 0.72, w: 1.2, h: 0.3, fontSize: FS.note, color: C.soft, align: "center", valign: "middle", wrap: false });
     });
     if (ct.resultHead) T(s, ct.resultHead, { x: x1 + 0.35, y: y0 - 0.72, w: 1.6, h: 0.3, fontSize: FS.note, color: C.soft, valign: "middle", wrap: false });
     rows.forEach((r, i) => {
-      const y = y0 + i * pitch, on = !!r.strong;
+      const y = y0 + i * pitch + inset, on = !!r.strong;
       T(s, r.name, { x: M, y, w: x0 - M - 0.2, h: bh, fontSize: on ? FS.head : FS.body, bold: on, color: on ? C.ink : C.soft, align: "right", valign: "middle", wrap: false });
       const len = lenOf(r);
       if (len !== null) rect(s, x0, y, Math.max(0.12, X(len) - x0), bh, on ? C.emph : C.bar);
-      if (on && r.big) focusValue(s, r.big, { x: len === null ? x0 : Math.max(X(len), x0 + 0.12) + 0.15, y: y - 0.1, w: 4, h: 0.62 });
-      if (r.result !== undefined) T(s, String(r.result), { x: x1 + 0.35, y: y - 0.1, w: 1.6, h: 0.62, fontSize: on ? 36 : 22, bold: true, color: on ? C.emph : C.gray, valign: "middle", wrap: false });
+      const bx = len === null ? x0 : Math.max(X(len), x0 + 0.12) + 0.15;
+      if (on && r.big) focusValue(s, r.big, { x: bx, y: y + bh / 2 - 0.31, w: Math.min(4, W - M - bx), h: 0.62 });
+      if (r.result !== undefined) T(s, String(r.result), { x: x1 + 0.35, y: y + bh / 2 - 0.31, w: 1.6, h: 0.62, fontSize: on ? 36 : 22, bold: true, color: on ? C.emph : C.gray, valign: "middle", wrap: false });
     });
-    return { rowY: i => y0 + i * pitch, X };
+    return { rowY: i => y0 + i * pitch + inset, X };
   };
 
   // 要約（2026-11-25）：結論（決めてほしいこと）を上に1つ、根拠を下に 2〜4 個並べ、線でつなぐ（ピラミッド）。上から下へ読めば「何を決めるか → なぜか」が分かる
@@ -2361,10 +2490,11 @@ function createDeck(pres, opts = {}) {
   //   o.rows: [{ label, sub?, group?（この行から始まる群の名前。例 "効果"）, strong?（選ぶ1行。帯を濃くし ink の枠）, cells: [cell, ...] }]
   //   o.judge: { label, cells }（最後の「判断」の行。各案を選ぶ・選ばない理由を1行で。結論は表の中に置く）
   //   cell: 文字列・数値 | null（"—"） | { text, bold?, problem?（赤字） } | { ball: 0〜4, text }（ハーベイボール＋根拠） | { bar: 値, max, text, main? }（割合などの横棒＋値）
+  //   行は本文の下端（o.bottom）まで、列は本文の幅まで等しく広げる（1行の高さは 1.8 まで）
   //   o.x（M）, o.w（BW）, o.y（最初の行の上端。既定 2.95）, o.labelW（2.4）, o.colGap（0.24）, o.fs（10.5。11行以上は 9.5 にしてよい）, o.legend（true でハーベイボールの凡例を右上に1行）
   //   強調は1ページ1か所: 列の strong か、行の strong のどちらか一方。太字にするのは選択肢名と決め手の値（cell.bold）だけ
   const compareTable = (s, o) => {
-    // 表の組み方（2026-11-24）：(1) 行を詰める。行の高さは文字の約2倍で、本文の領域に合わせて引き伸ばさない（間が広いと、行にも列にも見えず、語が散って見える）
+    // 表の組み方：(1) 行と列は本文の領域まで広げる（2026-11-28。下や右に大きな空きを残さない。1行の高さは 1.8 まで）
     //   (2) 値を主役にする。値は濃い 18pt、行の名前と列の見出しは控えめな 16pt（枠組みの文字が値より目立つと、値が後回しになる）
     //   (3) 1つの表には、同じ種類の値だけを入れる（数値・語・評価の丸を混ぜると、列を縦に読めない）。表の幅は中身に合わせる
     const x0 = o.x ?? M, wAll = o.w ?? BW, cg = o.colGap ?? 0.4, fs = o.fs ?? 20, hfs = fs - 1, lfs = fs - 1, pad = 0.1; // 値 20pt、行の名前と列の見出し 19pt（案B）
@@ -2383,6 +2513,16 @@ function createDeck(pres, opts = {}) {
     const fw = j => o.fit === false ? fwMax : Math.min(fwMax, 3.4, Math.max(1.3, natW(j)));
     const xs = []; let cx = x0 + lw + cg;
     o.cols.forEach((c, j) => { const w = c.w || fw(j); xs.push([cx, w]); cx += w + cg; });
+    // 列の幅を指定していなければ、余った幅を列に配って本文の幅を使う（横の結論 note の分は残す）
+    { const flex = o.cols.map((c, j) => (c.w ? -1 : j)).filter(j => j >= 0);
+      const noteRoom = o.note ? Math.max(2.1, ...String(o.note.head).split("\n").map(l => textW(l, FS.block) + 0.1)) + 0.4 : 0;
+      const spare = x0 + wAll - noteRoom - pad - (cx - cg);
+      if (o.fit !== false && flex.length && spare > 0.05) {
+        const add = spare / flex.length;
+        let nx = x0 + lw + cg;
+        xs.forEach((q, j) => { const w = q[1] + (flex.includes(j) ? add : 0); xs[j] = [nx, w]; nx += w + cg; });
+        cx = nx;
+      } }
     const right = Math.min(x0 + wAll, cx - cg + pad), y0 = o.y ?? 2.95, hasTag = o.cols.some(c => c.tag), rg = o.rowGap ?? 0.05, gsp = 0.14;
     const numLike = c => typeof c === "number" || (c != null && (typeof c !== "object" || (c.ball == null && c.bar == null)) && /^[-−+±]?[\d,.]+%?$/.test(textOf(c)));
     const colAlign = o.cols.map((c, j) => c.align || (o.rows.length && o.rows.every(r => numLike(r.cells[j])) ? "right" : "left"));
@@ -2413,9 +2553,10 @@ function createDeck(pres, opts = {}) {
     const gCount = o.rows.filter((r, i) => r.group && i > 0).length, gLab = o.rows.filter(r => r.group).length;
     const fixedH = rows.length * rg + gCount * gsp + gLab * 0.26 + (o.judge ? 0.16 + judgeH : 0);
     const natural = rows.reduce((a, x) => a + x.h, 0) + fixedH;
-    const stretch = 0; // 行は引き伸ばさない。表は詰めて置き、余った場所は空けておく（結論を横に置くなら o.note）
-    rows.forEach(x => { x.h += stretch; });
-    const jH = judgeH + (o.judge ? stretch : 0);
+    // 余った高さは、行に等しく配って本文の下端まで使う（1行の高さは 1.1 まで）
+    const spare = Math.max(0, (o.bottom ?? BOTTOM) - y0 - natural - 0.05) / Math.max(1, rows.length);
+    rows.forEach(x => { x.h = Math.max(x.h, Math.min(1.8, x.h + spare)); });
+    const jH = judgeH;
     // 見出し：選択肢名は 16pt bold（推奨の列は ink、他は soft）。単位は2行目に 9.5pt gray。札は見出しの上
     const headY = y0 - 0.66;
     o.cols.forEach((c, j) => {
@@ -2494,7 +2635,8 @@ function createDeck(pres, opts = {}) {
       y += jH + rg;
     }
     const bottom = y - rg;
-    // 読み取った結論（o.note: { head, body? }）：表の右の空きに、枠なしの文字で置く。表を引き伸ばして空きを埋める代わりに使う
+    addFig({ x: x0, y: headY, w: right - x0, h: bottom - headY }); // 表の外枠は、最後の行の下端まで（字の位置だけで測らない）
+    // 読み取った結論（o.note: { head, body? }）：表の右に、枠なしの文字で置く（列はその幅を残して広げる）
     if (o.note) {
       const nx = right + 0.4, nw = x0 + wAll - nx;
       const noteW = Math.max(...String(o.note.head).split("\n").map(l => textW(l, FS.block))); // 改行した結論は、いちばん長い行で見る
@@ -2577,9 +2719,10 @@ function createDeck(pres, opts = {}) {
     let hh = o.headH ?? 0.85, th = hasTime ? (o.timeH ?? 0.95) : 0, rwh = 0.5;
     const gapA = 0.14, base = chanH + hh + (hasTime ? gapA + th : 0) + (rows.length ? gapA + rows.length * rwh : 0);
     let extra = Math.max(0, bottom - y0 - base - 0.1);
-    if (o.headH == null) { const d = Math.min(extra * 0.25, 0.35); hh += d; extra -= d; }
-    if (hasTime && o.timeH == null) { const d = Math.min(extra * 0.4, 0.5); th += d; extra -= d; }
-    if (rows.length) rwh += Math.min(extra / rows.length, 0.35);
+    const free = extra; // 矢羽・所要・行で、本文の下端まで使い切る（上に寄せて、下を空けない）
+    if (o.headH == null) { const d = Math.min(free * (rows.length ? 0.2 : hasTime ? 0.4 : 1), rows.length ? 0.45 : 0.85); hh += d; extra -= d; }
+    if (hasTime && o.timeH == null) { const d = rows.length ? Math.min(free * 0.3, 0.7) : Math.min(extra, 1.4); th += d; extra -= d; }
+    if (rows.length) rwh += extra / rows.length;
     // 所要の段は、左の欄の見出しと凡例2行が入る高さを下限にする（下の行に重ねない）
     if (hasTime && o.timeH == null) th = Math.max(th, (FS.block + 2 * FS.note) * 1.2 / 72);
     const hy = y0 + chanH, ty = hy + hh + gapA, ry0 = (hasTime ? ty + th : hy + hh) + gapA;
@@ -2699,7 +2842,9 @@ function createDeck(pres, opts = {}) {
     // 率は1つに絞る（2026-11-24）：既定は「次へ進む率」（どこで落ちるか）。o.rate: "fromTop" なら「最初からの率」だけ。件数の無い目安のファネルは比率の列を出す
     const rateMode = o.rate ?? "next", noVal = st[0].value == null, showVal = rateMode === "fromTop" || noVal, showConv = rateMode !== "fromTop";
     if (rateMode === "fromTop" && o.drop !== undefined) warn("ファネル：最初からの率（rate: fromTop）では、落ちる所（drop）の印を付けられない。次へ進む率にする");
-    const fw = o.funnelW ?? (cols.length ? 4.0 : 6.0), vw = showVal ? (o.valueW ?? 1.3) : 0, cvw = showConv ? (o.convW ?? 1.25) : 0;
+    const vw = showVal ? (o.valueW ?? 1.3) : 0, cvw = showConv ? (o.convW ?? 1.25) : 0;
+    // 説明の列が無ければ、じょうごを本文の幅いっぱいに広げる（右に率の列だけを残す）
+    const fw = o.funnelW ?? (cols.length ? 4.0 : right - x0 - 0.2 - vw - cvw - (showVal && showConv ? 0.1 : 0));
     const vx = x0 + fw + 0.2, cvx = showVal ? vx + vw + 0.1 : vx, dx0 = (showConv ? cvx + cvw : vx + vw) + 0.3;
     const cg = GAP.std, dcw = cols.length ? (right - dx0 - cg * (cols.length - 1)) / cols.length : 0;
     const minR = o.minRatio ?? 0.32, k = Math.pow(minR, 1 / n), wAt = i => fw * Math.pow(k, i), fcx = x0 + fw / 2;
@@ -3264,6 +3409,7 @@ function createDeck(pres, opts = {}) {
   //   o.only: [工程の番号]（その区画と名前だけを描く。echo の keep で使う）
   //   戻り値: { seg(i) → { a0, a1, mid, at: [x, y]（区画の中心） }, label(i) → {x, y, w, h}, anchor(i) → [x, y], center → {x, y, w, h}, cx, cy, R, r }
   const cycleDiagram = (s, o) => {
+    ROUND.add(page); // 丸い図は、幅は求めず高さを見る
     const st = o.steps, n = st.length;
     if (n < 3 || n > 6) warn(`循環図：工程は3〜6つにする（${n}）`);
     checkOneEm(st, "循環図");
@@ -3870,7 +4016,7 @@ function createDeck(pres, opts = {}) {
     const top = o.top ?? 2.85, base = o.base ?? BOTTOM - 0.4;
     const tot = i => ser.reduce((a, sr) => a + sr.values[i], 0);
     const max = pct ? 1 : (o.max ?? Math.max(...o.cats.map((_, i) => tot(i))) * 1.08);
-    const { bw, slot, x0 } = colSlot("積み上げ縦棒", { x0: o.x0 ?? M + 0.3, x1: o.x1 ?? W - M - lw, n, bw: o.bw, needW: Math.max(...o.cats.map(c => textW(c, FS.body))) + 0.25, fill: o.x0 != null && o.x1 != null });
+    const { bw, slot, x0 } = colSlot("積み上げ縦棒", { x0: o.x0 ?? M, x1: o.x1 ?? W - M - lw, n, bw: o.bw, needW: Math.max(...o.cats.map(c => textW(c, FS.body))) + 0.25, fill: o.x0 != null && o.x1 != null });
     const bx = i => x0 + i * slot + (slot - bw) / 2;
     const fmt = o.fmt || (v => fmtNum(v)), pf = o.pctFmt || (r => Math.round(r * 100) + "%");
     const seg = o.cats.map((_, i) => { let y = base; const t = tot(i); return ser.map(sr => { const v = pct ? sr.values[i] / t : sr.values[i], h = v / max * (base - top), r = [y - h, y]; y -= h; return r; }); });
@@ -3997,6 +4143,7 @@ function createDeck(pres, opts = {}) {
   //   o.cx（W/2）, o.cy（4.6）, o.r（1.95）, o.thickness（ドーナツの太さ。半径に対する比 0.4）, o.fmt（it => 値の文字。既定は割合）, o.colors（主役以外の色。既定 C.bar）, o.labelW（2.9）
   //   戻り値: { cx, cy, r, mid(i)（区分の中央の角度） }
   const pieChart = (s, o) => {
+    ROUND.add(page); // 丸い図は、幅は求めず高さを見る
     const items = o.items, tot = items.reduce((a, b) => a + b.value, 0), r = o.r ?? 1.95, cx = o.cx ?? W / 2, cy = o.cy ?? 4.6, lw = o.labelW ?? 2.9;
     if (items.length > 5) warn(`円グラフの区分が${items.length}つある。5つまでにする（小さい区分は「その他」にまとめるか、hBars・treemap にする）`);
     if (items.some((it, i) => i && !it.other && it.value > items[i - 1].value)) warn("円グラフの区分が大きい順に並んでいない");
@@ -4303,6 +4450,7 @@ function createDeck(pres, opts = {}) {
   //   系列名は figHead の凡例に置く（線の横に置くと観点の名前と重なるため）
   //   戻り値: { pt(i, v) => [x, y] }
   const radarChart = (s, o) => {
+    ROUND.add(page); // 丸い図は、幅は求めず高さを見る
     const n = o.axes.length, r = o.r ?? 1.75, cx = o.cx ?? W / 2, cy = o.cy ?? 4.5, max = o.max ?? Math.max(...o.series.flatMap(x => x.values)), fmt = o.fmt || (v => String(v));
     if (n < 5) warn(`レーダーの観点が${n}つ。4つ以下なら対の棒（colBars）にする`);
     const ang = i => -Math.PI / 2 + i * 2 * Math.PI / n, pt = (i, v) => [cx + Math.cos(ang(i)) * r * v / max, cy + Math.sin(ang(i)) * r * v / max];
@@ -4423,6 +4571,7 @@ function createDeck(pres, opts = {}) {
   //     金額を空（空白だけ）にした古い呼び方は、今まで通り 22pt で描く（呼ぶ側が focusValue を置く）
   //   戻り値: { row(i) => { x, y, w, h }, circle(i) => { cx, cy, r } }
   const tamSamSom = (s, o) => {
+    ROUND.add(page); // 丸い図は、幅は求めず高さを見る
     const items = o.items || [];
     if (items.length !== 3) throw new Error(`tamSamSom：items は3件にする（${items.length}件）`);
     if (items.filter(it => it.strong).length > 1) warn("市場の絞り込み：strong が2件以上ある。強調は1ページ1か所にする");
@@ -4584,7 +4733,7 @@ function createDeck(pres, opts = {}) {
     if (items.length > 5 || n > 4) warn(`指標ごとの棒が大きい（${items.length}行×${n}列）。5行×4列まで`);
     const lw = labelCol("指標ごとの棒", items, o.labelW, FS.block, 3.6), cg = 0.4, lg = 0.2;
     const cw = (wAll - lw - lg - cg * (n - 1)) / n, colX = j => x0 + lw + lg + j * (cw + cg);
-    const headH = 0.62, pitch = o.pitch ?? Math.min(0.85, (bottom - y0 - headH) / items.length), bh = Math.min(pitch * 0.55, FS.body / 72 * 1.5);
+    const headH = 0.62, pitch = o.pitch ?? (bottom - y0 - headH) / items.length, bh = Math.min(pitch * 0.55, BAR_H_MAX);
     const key = o.key ? `${o.key[0]}:${o.key[1]}` : null;
     ms.forEach((m, j) => {
       const x = colX(j), max = Math.max(...m.values, 1e-9), fmt = m.fmt || (v => fmtNum(v));
@@ -4691,17 +4840,17 @@ function createDeck(pres, opts = {}) {
     }
     Object.entries(hits).forEach(([n, k]) => {
       const slide = n.match(/^ppt\/slides\/slide(\d+)\.xml$/);
-      console.warn(`[deck-parts] ${slide ? `P.${slide[1]}` : n} の画像の代替テキストが、ファイルの場所になっていた（${k} 件）。空にして書き出した。build.js の addImage に、画像が何かの短い説明を altText で書く`);
+      deckWarn(`[deck-parts] ${slide ? `P.${slide[1]}` : n} の画像の代替テキストが、ファイルの場所になっていた（${k} 件）。空にして書き出した。build.js の addImage に、画像が何かの短い説明を altText で書く`);
     });
   };
   const finalize = async outPath => {
     LATER.forEach(fn => fn());
     // 聞き手の前提：宣言していなければ知らせる（2026-11-25）
-    if (AUD === undefined) console.warn(`[deck-parts] 聞き手の前提（createDeck の audience）を決めていない。"first-time"（その事業・製品を初めて聞く）か "insider"（前提を共有済み）を書く。初見なら、新しい物は一言のコンセプト（concept）から入る`);
+    if (AUD === undefined) deckWarn(`[deck-parts] 聞き手の前提（createDeck の audience）を決めていない。"first-time"（その事業・製品を初めて聞く）か "insider"（前提を共有済み）を書く。初見なら、新しい物は一言のコンセプト（concept）から入る`);
     // アジェンダ：8 枚以上の資料は、表紙（と要約）の後にアジェンダを置く（2026-11-25）
-    if (!AGENDA_DONE && page >= 8) console.warn(`[deck-parts] アジェンダのページが無い（${page} 枚）。8 枚以上の資料は、表紙（と要約）の後にアジェンダを置く：createDeck の nav に章立てを書き、agendaPage() を呼ぶ。各ページのタイトルは章の項目名になる。「15 枚」のような枚数の指定は、表紙とアジェンダを数えない本編の数として扱い、アジェンダを省く理由にしない`);
+    if (!AGENDA_DONE && page >= 8) deckWarn(`[deck-parts] アジェンダのページが無い（${page} 枚）。8 枚以上の資料は、表紙（と要約）の後にアジェンダを置く：createDeck の nav に章立てを書き、agendaPage() を呼ぶ。各ページのタイトルは章の項目名になる。「15 枚」のような枚数の指定は、表紙とアジェンダを数えない本編の数として扱い、アジェンダを省く理由にしない`);
     // グラフのページ：見る所の値（FOCUS_FS・強調の色）が1つだけあるか
-    FOCUS.forEach(f => { if (!CHARTP[f.page] || f.focus === false) return; const n = BIGF[f.page] || 0; if (!n) console.warn(`[deck-parts] P.${f.page} グラフの見る所の値が無い。見る所の値を ${FOCUS_FS}pt・強調の色で、見る所の隣に書く（focusValue か、部品の focusValue の口）`); else if (n > 1) console.warn(`[deck-parts] P.${f.page} 見る所の大きな値が ${n} つある。強調の色の大きな値は1つにする`); });
+    FOCUS.forEach(f => { if (!CHARTP[f.page] || f.focus === false) return; const n = BIGF[f.page] || 0; if (!n) deckWarn(`[deck-parts] P.${f.page} グラフの見る所の値が無い。見る所の値を ${FOCUS_FS}pt・強調の色で、見る所の隣に書く（focusValue か、部品の focusValue の口）`); else if (n > 1) deckWarn(`[deck-parts] P.${f.page} 見る所の大きな値が ${n} つある。強調の色の大きな値は1つにする`); });
     // リードの数字は、同じページの図で確かめられるようにする。10 までの数え方（「2つ」「5年で」「3社」）は除き、「4割」は 40 でもよい。図の文字が無いページは見ない
     LEADS.forEach(l => {
       if (!l.lead || !l.fig.length) return;
@@ -4709,11 +4858,18 @@ function createDeck(pres, opts = {}) {
       const text = l.lead.normalize("NFKC").replace(/\n/g, "").replace(/(?<![\d.,])([1-9]|10)(?=つ|年(?!度)|か月|週間|時間|項目|工程|段階|社|店|案|種類)/g, "");
       const tens = new Set((text.match(/\d+(\.\d+)?(?=割)/g) || []).map(v => String(Number(v))));
       const missing = [...new Set(numsOf(text))].filter(v => !inFig.has(v) && !(tens.has(v) && inFig.has(String(Number(v) * 10))));
-      if (missing.length) console.warn(`[deck-parts] P.${l.page} リードの数字（${missing.join("、")}）が、このページの図に無い。図に同じ値を同じ書き方で示すか、リードから外す`);
+      if (missing.length) deckWarn(`[deck-parts] P.${l.page} リードの数字（${missing.join("、")}）が、このページの図に無い。図に同じ値を同じ書き方で示すか、リードから外す`);
       // リードが名指しする値の少なくとも1つは、図の中で主役の大きさにする。年と月（時点）、10 までの人や回の数え方は値に数えない
       const values = [...new Set(numsOf(text.replace(/(?<![\d.,])(19|20)\d\d(?=年)/g, "").replace(/(?<![\d.,])(1[0-2]|[1-9])(?=月)/g, "").replace(/(?<![\d.,])([1-9]|10)(?=人|名|チーム|周|回|件)/g, "")))].filter(v => inFig.has(v) || (tens.has(v) && inFig.has(String(Number(v) * 10))));
       const big = new Set(l.big.flatMap(numsOf));
-      if (values.length && !values.some(v => big.has(v) || (tens.has(v) && big.has(String(Number(v) * 10))))) console.warn(`[deck-parts] P.${l.page} リードの数値（${values.join("、")}）が、どれも図の中で大きくない（${BIG_PT}pt 未満）。持ち帰る値を主役の大きさにする（部品の focusValue、roadmap の kpis の { key: true }、focusValue(s, 値, 場所) など）`);
+      if (values.length && !values.some(v => big.has(v) || (tens.has(v) && big.has(String(Number(v) * 10))))) deckWarn(`[deck-parts] P.${l.page} リードの数値（${values.join("、")}）が、どれも図の中で大きくない（${BIG_PT}pt 未満）。持ち帰る値を主役の大きさにする（部品の focusValue、roadmap の kpis の { key: true }、focusValue(s, 値, 場所) など）`);
+    });
+    // 図は本文の領域を使い切る：図の外枠が、本文の幅か高さの8割に満たないページを知らせる（円・レーダーは高さだけ）
+    Object.keys(FIGBOX).map(Number).forEach(pg => {
+      if (NOFILL.has(pg)) return;
+      const f = FIGBOX[pg], rw = (Math.min(f.x1, W - M) - Math.max(f.x0, M)) / BW, rh = (Math.min(f.y1, BOTTOM) - Math.max(f.y0, BODY)) / (BOTTOM - BODY);
+      const lowW = !ROUND.has(pg) && rw < 0.8, lowH = rh < 0.8;
+      if (lowW || lowH) deckWarn(`[deck-parts] P.${pg} 余白：図が本文の領域を使い切っていない（幅 ${Math.round(rw * 100)}%・高さ ${Math.round(rh * 100)}%。どちらも8割以上）。区分の幅・行の間隔・棒の長さを広げる（x0・x1・y0・bottom・pitch などの指定で狭めていないか確かめる）`);
     });
     // 1ページの情報は1つの図：同じ図の続きではないページの、指さない箱に、図に描いていない数値があれば知らせる。「1回」「2つ」などの数え方と年は除く
     const boxNums = t => numsOf(String(t).normalize("NFKC").replace(/(?<![\d.,])(19|20)\d\d(?=年)/g, "").replace(/(?<![\d.,])([1-9]|10)(?=つ|回|件|番|人目|週目|か月目|年目)/g, ""));
@@ -4722,16 +4878,16 @@ function createDeck(pres, opts = {}) {
       if (!l || ECHOED.has(b.page)) return;
       const drawn = new Set(l.own.flatMap(numsOf));
       const missing = [...new Set(boxNums(b.text))].filter(v => !drawn.has(v));
-      if (missing.length) console.warn(`[deck-parts] P.${b.page} 図の外の箱（「${b.head.replace(/\n/g, "").slice(0, 18)}」）に、図に無い数値（${missing.join("、")}）がある。1ページの情報は1つの図にまとめる：1つのグラフで両方を表すか、ページを分ける（同じ図を敷いた続きの series か、別の図）。補足の箱で足さない`);
+      if (missing.length) deckWarn(`[deck-parts] P.${b.page} 図の外の箱（「${b.head.replace(/\n/g, "").slice(0, 18)}」）に、図に無い数値（${missing.join("、")}）がある。1ページの情報は1つの図にまとめる：1つのグラフで両方を表すか、ページを分ける（同じ図を敷いた続きの series か、別の図）。補足の箱で足さない`);
     });
     // 聴講者が持ちうる疑問：リードのある全ページで、問いと答えの場所を書いてから点検する（画面には出さない）
     const noAsk = LEADS.filter(l => l.lead && !l.ask).map(l => l.page);
-    if (noAsk.length) console.warn(`[deck-parts] 聴講者が持ちうる疑問（base の o.ask）が空のページ：${noAsk.map(p => `P.${p}`).join("、")}。聴講者として「何を？どれ？どうする？どれくらい？」と問い、答えがリードか同じページの図にあるかを書く（無ければリードを直す）`);
+    if (noAsk.length) deckWarn(`[deck-parts] 聴講者が持ちうる疑問（base の o.ask）が空のページ：${noAsk.map(p => `P.${p}`).join("、")}。聴講者として「何を？どれ？どうする？どれくらい？」と問い、答えがリードか同じページの図にあるかを書く（無ければリードを直す）`);
     // 外部の製品・会社：図の中に名前があるのに、そのページにアイコンが無ければ知らせる
-    Object.keys(BRANDS_ON).forEach(pg => Object.keys(BRANDS_ON[pg]).forEach(k => { if (!(ICONS_ON[pg] || {})[k]) console.warn(`[deck-parts] P.${pg} 外部の製品・会社（${k}）を図に出しているが、アイコンが無い。公式のアイコンを取得して icons/ に置き、名前の横に置く（scripts/fetch_icon.py）`); }));
+    Object.keys(BRANDS_ON).forEach(pg => Object.keys(BRANDS_ON[pg]).forEach(k => { if (!(ICONS_ON[pg] || {})[k]) deckWarn(`[deck-parts] P.${pg} 外部の製品・会社（${k}）を図に出しているが、アイコンが無い。公式のアイコンを取得して icons/ に置き、名前の横に置く（scripts/fetch_icon.py）`); }));
     // 線の絵の色：資料の色の組（文字の色・強調の色）で塗ってあるかを確かめる
     if (lineIconUsed && (!ICON_TINT || String(ICON_TINT.ink).toUpperCase() !== String(C.ink).toUpperCase() || String(ICON_TINT.emph).toUpperCase() !== String(C.emph).toUpperCase()))
-      console.warn(`[deck-parts] 線の絵（アイコン）の色が、資料の色の組と合っていない（アイコン: ${ICON_TINT ? ICON_TINT.ink + "・" + ICON_TINT.emph : "塗っていない"}、資料: ${C.ink}・${C.emph}）。作業フォルダで塗り直す: python3 <skills>/pptx-deck-design/scripts/tint_icons.py icons --ink ${C.ink} --emph ${C.emph} --accent ${C.accent}`);
+      deckWarn(`[deck-parts] 線の絵（アイコン）の色が、資料の色の組と合っていない（アイコン: ${ICON_TINT ? ICON_TINT.ink + "・" + ICON_TINT.emph : "塗っていない"}、資料: ${C.ink}・${C.emph}）。作業フォルダで塗り直す: python3 <skills>/pptx-deck-design/scripts/tint_icons.py icons --ink ${C.ink} --emph ${C.emph} --accent ${C.accent}`);
     // 見る所の一覧：点検で、画像を見て最初に目が行った所と引き比べる（review-checklist）
     if (opts.focusList !== false) fs.writeFileSync(String(outPath).replace(/\.pptx$/i, "") + ".focus.md", "# 見る所の一覧\n\n画像だけを見て「最初に目が行く所」を答え、下の宣言と合うかを確かめる。合わないページは、強調を直す。\n\n| ページ | タイトル | 見る所（宣言） |\n|---|---|---|\n" + FOCUS.filter(f => f.title).map(f => `| ${f.page} | ${f.title} | ${f.focus === false ? "（列挙。見る所なし）" : f.focus ?? "（宣言なし）"} |`).join("\n") + "\n");
     // 題とリードの一覧：題の言葉と、リードだけを通して読んだ話の通りを確かめる（review-checklist）
@@ -4761,11 +4917,12 @@ function createDeck(pres, opts = {}) {
       const rels = await zip.file(`ppt/slides/_rels/slide${p.slide}.xml.rels`).async("string");
       const charts = [...rels.matchAll(/Target="(?:\.\.|\/ppt)\/charts\/(chart(\d+)\.xml)"/g)].sort((a, b) => a[2] - b[2]).map(m => m[1]);
       const target = charts[p.nth];
-      if (!target) { console.warn(`[deck-parts] P.${p.slide} のグラフが見つからない（強調を入れられない）`); continue; }
+      if (!target) { deckWarn(`[deck-parts] P.${p.slide} のグラフが見つからない（強調を入れられない）`); continue; }
       zip.file(`ppt/charts/${target}`, patchChartXml(await zip.file(`ppt/charts/${target}`).async("string"), p));
     }
     await scrubDescr(zip);
     fs.writeFileSync(outPath, await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }));
+    console.log(`[警告の合計] ${WARNS}件${WARNS ? "（0件になるまで直して書き出し直す。直せない警告は、理由を返事に書く）" : ""}`);
     console.log("written", outPath, `(${page} pages)`);
     return outPath;
   };

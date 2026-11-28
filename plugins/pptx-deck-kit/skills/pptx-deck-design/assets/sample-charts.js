@@ -178,7 +178,7 @@ d.setChapter(2);
 // 縦棒（単系列）：図形の棒（colBars）。値は棒の外の上、縦軸と目盛り線は置かない。見る所の1本だけ強調の色、その値は棒の上に 28pt（focus）
 // ネイティブの棒（barChart）は1本だけ値を大きくできないので、見る所のあるページでは使わない（期が多く、PowerPoint 上で値を差し替える資料だけ）
 // 関連する2つの論点（月別の受注と、3月の増加の内訳）が1つの図に収まらないので、続きのページにする（series）。
-// 2枚目は1枚目の図を薄く敷き、前面の札に2つ目の図を重ねる（overlay）。見る所は前面の1つ
+// 2枚目は1枚目の図を薄く敷き、掘り下げる元（from）を濃いまま残して矢印を引き、前面の札に2つ目の図を重ねる（overlay）
 {
   const monthly = d.series(s => {
     d.figHead(s, "月別の受注件数（2025年度、件）");
@@ -190,15 +190,17 @@ d.setChapter(2);
   monthly.page({ lead: "受注の最多は、3月の1,840件。", ask: "いつの年度？ → 図の見出し（2025年度）", focus: "3月の棒と1,840" });
   monthly.page({
     lead: "3月の前月比の増加320件は、210件が通販。", ask: "残りはどの経路？ → 前面の代理店と直販", focus: "前面の通販の棒と+210",
-    overlay: r => ({
-      // 札の左右は、下の図の区分の境にそろえる（値の文字に半端に重ねない）。高さは中身に合わせる
-      x: r.cx(0) - (r.cx(1) - r.cx(0)) / 2, y: 2.75, w: (r.cx(1) - r.cx(0)) * 6, h: 2.75, title: "3月の増加320件の内訳（前月比）",
-      clear: { x: r.barX(0, 11), y: r.barTop(0, 11) - 0.7, w: r.bw, h: r.base - r.barTop(0, 11) + 0.7 }, // 掘り下げる3月の棒と値は隠さない
-      draw: (s, rect) => d.hBars(s, {
-        ...rect.rows, fmt: v => d.fmtNum(v, { plus: true }),
-        rows: [{ label: "通販", value: 210, focusValue: true }, { label: "代理店", value: 80 }, { label: "直販", value: 30 }],
-      }),
-    }),
+    // from＝掘り下げる元（3月の棒・値・区分名）。そこは元の濃さで残り、部品が札へ矢印を引く。札は、話に使わない月の上
+    overlay: r => {
+      const from = r.span(11), w = 5.8;
+      return {
+        from, x: from.x - 0.55 - w, y: 2.7, w, h: 2.9, title: "3月の増加320件の内訳（前月比）",
+        draw: (s, rect) => d.hBars(s, {
+          ...rect.rows, fmt: v => d.fmtNum(v, { plus: true }),
+          rows: [{ label: "通販", value: 210, focusValue: true }, { label: "代理店", value: 80 }, { label: "直販", value: 30 }],
+        }),
+      };
+    },
   });
 }
 
