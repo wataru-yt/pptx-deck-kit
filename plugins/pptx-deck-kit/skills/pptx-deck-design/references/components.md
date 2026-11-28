@@ -79,7 +79,7 @@ d.metricBars(s, { items: ["今のやり方", "他社の製品", "自社の製品
 - 持ち帰る値は `{ key: true }` を付ける（`["月6万食", "販売数", { key: true }]`）。値を大きく書き、何の値かをその下に置く。全体で2つまで。リードが名指しする基準や目標は、これで大きくする
 - いちばん下に、資金や体制の帯（`bands: [{ from, to, label, strong? }]`）
 - 見る所の段階を1つだけ `strong`（丸を強調の色で塗る。白い絵 `<名前>-w.png` があれば、それを使う）
-- 続きのページでは、`spot: r => r.col(i)` で、その段階の列だけを残せる
+- 続きのページでは、`spot: r => r.col(i)` で、その段階の列だけを残せる。2つ以上の段階にまたがる帯は、1段階の列には含まない。帯の段階をすべて残すときは、`col` を足した矩形を渡すと帯まで残る
 - 線の絵（`pic-search`・`pic-launch`・`pic-people`・`pic-building`・`pic-yen`・`pic-box`・`pic-contract`・`pic-calendar`・`pic-laptop`・`pic-bubble`・`pic-star`・`pic-pie`・`pic-play`・`pic-umbrella`）が `icons/` にある
 
 ```js

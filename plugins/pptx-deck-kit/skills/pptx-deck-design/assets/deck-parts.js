@@ -1510,7 +1510,9 @@ function createDeck(pres, opts = {}) {
     if (hole) {
       // 残す形は、矩形1つか、parts（colBars の span の棒・値・区分名）。横の帯に分け、残す所を除いて覆う
       const ax = a.x ?? 0, ay = a.y ?? 2.15, aw = a.w ?? W, ah = a.h ?? BOTTOM + 0.08 - 2.15, t = o.transparency ?? 25, pd = 0.06;
-      const hs = (hole.parts || [hole]).map(p => ({ x: Math.max(ax, p.x - pd), y: Math.max(ay, p.y - pd), x2: Math.min(ax + aw, p.x + p.w + pd), y2: Math.min(ay + ah, p.y + p.h + pd) })).filter(p => p.x2 > p.x && p.y2 > p.y);
+      // 複数の段階にまたがる帯（r.spanBands）は、残す所がその幅を丸ごと含むときだけ、帯まで残す（col を並べて渡したときも）
+      const withSpan = p => ((r && r.spanBands) || []).reduce((q, b) => (q.x <= b.x + 0.05 && q.x + q.w >= b.x + b.w - 0.05 && q.y + q.h >= b.y - 0.15 && q.y + q.h < b.y + b.h ? { ...q, h: b.y + b.h + 0.06 - q.y } : q), p);
+      const hs = (hole.parts || [hole]).map(withSpan).map(p => ({ x: Math.max(ax, p.x - pd), y: Math.max(ay, p.y - pd), x2: Math.min(ax + aw, p.x + p.w + pd), y2: Math.min(ay + ah, p.y + p.h + pd) })).filter(p => p.x2 > p.x && p.y2 > p.y);
       const ys = [...new Set([ay, ay + ah, ...hs.flatMap(p => [p.y, p.y2])])].sort((p, q) => p - q);
       const bands = [];
       for (let i = 0; i + 1 < ys.length; i++) {
@@ -4968,8 +4970,10 @@ function createDeck(pres, opts = {}) {
     const bottom = (o.bands || []).length ? BY + BH : BY - 0.18;
     if (bottom > BOTTOM + 0.05) warn(`段階の道の下端 ${bottom.toFixed(2)} が本文の下端を超える（条件を減らす）`);
     // col(i)：段階の列。下の帯がほかの段階にまたがるときは、帯の手前まで（濃く残す所が、帯を途中で切らない）
+    //   帯の段階をすべて含む残す所は、echo が spanBands を見て帯まで広げる
+    const spanBands = (o.bands || []).filter(b => b.from !== b.to).map(b => ({ x: X(b.from) - CW / 2 + 0.08, y: BY, w: X(b.to) - X(b.from) + CW - 0.16, h: BH }));
     const wide = i => (o.bands || []).some(b => b.from <= i && i <= b.to && b.from !== b.to);
-    return { col: i => ({ x: X(i) - CW / 2, y: WY - 0.04, w: CW, h: (wide(i) ? BY - 0.06 : bottom + 0.06) - (WY - 0.04) }), X, CW, K0, KP, right: X(n - 1) + CW / 2, bottom,
+    return { col: i => ({ x: X(i) - CW / 2, y: WY - 0.04, w: CW, h: (wide(i) ? BY - 0.06 : bottom + 0.06) - (WY - 0.04) }), spanBands, X, CW, K0, KP, right: X(n - 1) + CW / 2, bottom,
       // 前面の箱の置き場所：cover(i, j)＝i〜j の段階を丸ごと覆う（j を省くと右の端まで）、below()＝図の下の空き
       cover: (i, j = n - 1) => coverRect(X(i) - CW / 2, WY - 0.04, X(j) + CW / 2, bottom), below: () => belowRect(bottom) };
   };
