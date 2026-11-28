@@ -1,5 +1,6 @@
 node_modules/
 .DS_Store
+__pycache__/
 # 手元の作業用（公開しない）
 NEXT.md
 NOTES-internal.md
