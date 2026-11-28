@@ -191,11 +191,12 @@ d.setChapter(2);
   monthly.page({
     title: "3月の受注の増加",
     lead: "3月の前月比の増加320件は、210件が通販。", ask: "残りはどの経路？ → 前面の代理店と直販", focus: "前面の通販の棒と+210",
-    // from＝掘り下げる元（3月の棒・値・区分名）。そこは元の濃さで残り、部品が札へ矢印を引く。札は、話に使わない月の上
+    // from＝掘り下げる元（3月の棒・値・区分名）。そこは元の濃さで残り、部品が札へ矢印を引く。
+    // 札は、話に使わない月の列を丸ごと覆う（r.cover）。棒の途中に掛けない
     overlay: r => {
-      const from = r.span(11), w = 5.8;
+      const from = r.span(11);
       return {
-        from, x: from.x - 0.55 - w, y: 2.7, w, h: 2.9, title: "3月の増加320件の内訳（前月比）",
+        from, ...r.cover(2, 8), title: "3月の増加320件の内訳（前月比）",
         draw: (s, rect) => d.hBars(s, {
           ...rect.rows, fmt: v => d.fmtNum(v, { plus: true }),
           rows: [{ label: "通販", value: 210, focusValue: true }, { label: "代理店", value: 80 }, { label: "直販", value: 30 }],

@@ -855,8 +855,24 @@ function createDeck(pres, opts = {}) {
     const f = FIGBOX[page] || (FIGBOX[page] = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity });
     f.x0 = Math.min(f.x0, b.x); f.y0 = Math.min(f.y0, b.y); f.x1 = Math.max(f.x1, b.x + b.w); f.y1 = Math.max(f.y1, b.y + b.h);
   };
+  // 図の要素（塗りのある図形・文字の字面・画像）の範囲。続きのページで、前面の箱や濃く残す所の境目が要素の途中を通らないかに使う。
+  //   線（罫線・軸・矢印）と塗りの無い枠は数えない。keeping：薄くした上に描き直した要素（隠してはいけない）
+  const ELEMS = {}; let keeping = false;
+  const noteElem = (m, a) => {
+    if (inChrome || inFooter || inDim || inBox || inSource) return;
+    let b = null;
+    if (m === "addShape") { const o = a[1] || {}; if (a[0] !== SH.LINE && o.fill && o.fill.type !== "none") b = o; }
+    else if (m === "addText") b = a[1] && inkBox(a[0], a[1]);
+    else if (m === "addImage") b = a[0];
+    if (!b || ![b.x, b.y, b.w, b.h].every(v => typeof v === "number" && Number.isFinite(v)) || b.w < 0.08 || b.h < 0.08) return;
+    // 台形などの自由な形は、頂点の範囲を要素の範囲にする（枠は形より広いことがある）
+    const px = (b.points || []).map(p => p.x).filter(Number.isFinite), py = (b.points || []).map(p => p.y).filter(Number.isFinite);
+    if (px.length && py.length) b = { x: b.x + Math.min(...px), y: b.y + Math.min(...py), w: Math.max(...px) - Math.min(...px), h: Math.max(...py) - Math.min(...py) };
+    const t = m === "addText" ? (Array.isArray(a[0]) ? a[0].map(r => (r && r.text) || "").join("") : String(a[0] ?? "")).replace(/\n/g, "").trim() : "";
+    (ELEMS[page] ??= []).push({ x: b.x, y: b.y, w: b.w, h: b.h, t, keep: keeping });
+  };
   const trackFig = (s, pg) => {
-    const wrap = (m, box) => { const f = s[m].bind(s); s[m] = (...a) => { if (page === pg) addFig(box(a)); return f(...a); }; };
+    const wrap = (m, box) => { const f = s[m].bind(s); s[m] = (...a) => { if (page === pg) { addFig(box(a)); noteElem(m, a); } return f(...a); }; };
     wrap("addShape", a => a[1]);
     wrap("addText", a => (a[1] && inkBox(a[0], a[1])));
     wrap("addImage", a => a[0]);
@@ -1428,7 +1444,9 @@ function createDeck(pres, opts = {}) {
   //   o: { x, y, w, h, no, head, body, to: [x, y]（指す位置）, from: [x, y]（線の出どころ。既定は箱の下辺中央）, refKey（右下に「P.n」） , refPrefix }
   const callout = (s, o) => { noteBox(o); inBox = true; try { callout0(s, o); } finally { inBox = false; } };
   const callout0 = (s, o) => {
-    const h = o.h ?? 1.0, from = o.from || [o.x + o.w / 2, o.to && o.to[1] < o.y ? o.y : o.y + h];
+    let h = o.h ?? 1.0;
+    { const r = fitToFigure(`吹き出し（${String(o.head).slice(0, 12)}）`, { x: o.x, y: o.y, w: o.w, h }, o.to); o = { ...o, x: r.x, y: r.y, w: r.w }; h = r.h; if (r.fitted && o.to && gapTo(o.to, r) < 0.2) o = { ...o, to: undefined, from: undefined }; }
+    const from = o.from || [o.x + o.w / 2, o.to && o.to[1] < o.y ? o.y : o.y + h];
     if (o.to) segLine(s, from[0], from[1], o.to[0], o.to[1], { color: C.accent, width: 1.25 });
     s.addShape(SH.RECTANGLE, { x: o.x, y: o.y, w: o.w, h, fill: { color: C.white }, line: { color: C.accent, width: 1.25 }, shadow: { type: "outer", color: "000000", opacity: 0.15, blur: 6, offset: 2, angle: 90 } });
     if (o.no !== undefined) redDot(s, o.no, o.x + 0.3, o.y + 0.3, 0.3);
@@ -1451,7 +1469,8 @@ function createDeck(pres, opts = {}) {
     // 高さを指定しないときは、文字の行数から決める
     const mbw = o.w - (o.num !== undefined ? 0.52 : PAD.x) - PAD.x;
     const need = lineCount(o.head, FS.head, mbw) * lineH(FS.head) + (o.body ? lineH(6) + lineCount(o.body, FS.body, mbw) * lineH(FS.body) : 0);
-    const h = o.h ?? Math.max(o.body ? 1.0 : 0.6, Math.ceil((need + 0.1) * 20) / 20);
+    let h = o.h ?? Math.max(o.body ? 1.0 : 0.6, Math.ceil((need + 0.1) * 20) / 20);
+    { const r = fitToFigure(`前面の箱（${String(o.head).slice(0, 12)}）`, { x: o.x, y: o.y, w: o.w, h }, o.to); o = { ...o, x: r.x, y: r.y, w: r.w }; h = r.h; if (r.fitted && o.to && gapTo(o.to, r) < 0.2) o = { ...o, to: undefined, from: undefined }; }
     // 範囲を指す（toRange: [[x1, y], [x2, y]]）：2点を赤の線で結び、両端に短い縦線を付けて、その中点を指す
     if (o.toRange) {
       const [[ax, ay], [bx, by]] = o.toRange, my = Math.min(ay, by);
@@ -1503,10 +1522,57 @@ function createDeck(pres, opts = {}) {
         if (last && last.key === key) last.y2 = y2; else bands.push({ key, segs, y1, y2 });
       }
       bands.forEach(({ segs, y1, y2 }) => segs.forEach(([x1, x2]) => { if (x2 - x1 > 0.005 && y2 - y1 > 0.005) overlay(s, x1, y1, x2 - x1, y2 - y1, t); }));
+      // 濃く残す所の境目が、文字や図形の途中を通らないか
+      (PROTECT[page] ??= []).push(...hs.map(p => ({ x: p.x, y: p.y, w: p.x2 - p.x, h: p.y2 - p.y })));
+      const parts = PROTECT[page];
+      const cut = underElems().filter(e => !parts.some(p => within(e, p)) && parts.some(p => crosses(e, p) && !within(p, e)));
+      if (cut.length) warn(`濃く残す所（spot）の境目が、${cut.slice(0, 3).map(elName).join("、")}の途中を通る（半分だけ薄くなる）。部品の戻り値の col・row・span など、要素を丸ごと含む矩形を渡す`);
     } else overlay(s, a.x, a.y, a.w, a.h, o.transparency ?? 25);
-    if (o.keep) o.keep(s, r);
+    if (o.keep) { keeping = true; try { o.keep(s, r); } finally { keeping = false; } }
     return r;
   };
+  // 前面の箱・濃く残す所の境目が、図の要素の途中を通らないか。TOL は字面の見積もりのずれ
+  const TOL = 0.05, PROTECT = {};
+  const crosses = (a, b) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > TOL && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > TOL;
+  const within = (e, b) => e.x >= b.x - TOL && e.y >= b.y - TOL && e.x + e.w <= b.x + b.w + TOL && e.y + e.h <= b.y + b.h + TOL;
+  // 下の図の要素。ほかの要素を3つ以上含む大きな塗り（行の帯・レーンの地）は、地とみなして数えない
+  const underElems = () => {
+    const all = ELEMS[page] || [];
+    return all.filter(e => e.w * e.h < 2 || all.filter(q => q !== e && q.x + q.w / 2 > e.x && q.x + q.w / 2 < e.x + e.w && q.y + q.h / 2 > e.y && q.y + q.h / 2 < e.y + e.h).length < 3);
+  };
+  const partial = (e, b) => crosses(e, b) && !within(e, b) && !within(b, e);
+  const elName = e => (e.t ? `「${e.t.slice(0, 12)}」` : `図形（x ${e.x.toFixed(1)}・y ${e.y.toFixed(1)}）`);
+  // 続きのページの前面の箱・札は、薄くした図の要素と「重ならない」か「丸ごと覆う」。一部にだけ掛かるときは、要素の外枠まで広げる。
+  // 広げると、濃く残す所・指す点に掛かるか、本文の外に出るときは、止める
+  const fitToFigure = (what, bx, to) => {
+    if (!ECHOED.has(page)) return bx;
+    const els = underElems();
+    if (!els.some(e => partial(e, bx))) return bx;
+    let r = { x: bx.x, y: bx.y, w: bx.w, h: bx.h }, first = els.find(e => partial(e, bx));
+    for (let n = 0; n < 12; n++) {
+      const hits = els.filter(e => partial(e, r));
+      if (!hits.length) break;
+      const pd = 0.06, ph = 0.02; // 左右は、隣の列の強調の枠にかからないよう小さく取る
+      const x = Math.max(Math.min(M, r.x), Math.min(r.x, ...hits.map(e => e.x - ph))), y = Math.max(Math.min(BODY - 0.1, r.y), Math.min(r.y, ...hits.map(e => e.y - pd)));
+      const x2 = Math.min(Math.max(W - M, r.x + r.w), Math.max(r.x + r.w, ...hits.map(e => e.x + e.w + ph))), y2 = Math.min(Math.max(BOTTOM + 0.15, r.y + r.h), Math.max(r.y + r.h, ...hits.map(e => e.y + e.h + pd)));
+      if (Math.abs(x - r.x) + Math.abs(y - r.y) + Math.abs(x2 - r.x - r.w) + Math.abs(y2 - r.y - r.h) < 0.001) break;
+      r = { x, y, w: x2 - x, h: y2 - y };
+    }
+    const stop = why => { throw new Error(`P.${page} ${what}が、薄くした図の要素${elName(first)}の一部にだけ掛かる。要素の外枠まで広げると${why}。置き場所を、部品の戻り値の cover(i)（その列・行を丸ごと覆う）か below()（図の下の空き）で決め直すか、文を縮めて空いた所に置く。どこにも置けないなら、重ねずに別のページにする`); };
+    const shielded = [...(PROTECT[page] || []), ...els.filter(e => e.keep)];
+    if (shielded.some(q => crosses(q, r) && !crosses(q, bx))) stop("、濃く残す所（spot・from・keep）に掛かる");
+    if (to && to[0] > r.x && to[0] < r.x + r.w && to[1] > r.y && to[1] < r.y + r.h) stop("、指す点（to）を隠す");
+    if (els.some(e => partial(e, r))) stop("も、まだ別の要素の途中に掛かる");
+    console.log(`[deck-parts-fit] P.${page} ${what}を、薄くした図の要素の外枠まで広げた（x ${bx.x.toFixed(2)}→${r.x.toFixed(2)}、y ${bx.y.toFixed(2)}→${r.y.toFixed(2)}、w ${bx.w.toFixed(2)}→${r.w.toFixed(2)}、h ${bx.h.toFixed(2)}→${r.h.toFixed(2)}）`);
+    return { ...r, fitted: true };
+  };
+  // 点から箱の縁までの距離。広げた箱が指す点のすぐ横まで来たら、引き出し線は引かない（隣にあれば足りる）
+  const gapTo = (pt, b) => Math.hypot(Math.max(b.x - pt[0], 0, pt[0] - b.x - b.w), Math.max(b.y - pt[1], 0, pt[1] - b.y - b.h));
+
+  // 覆う矩形の下端は、区分名が本文の下端を少し越えるので、下端 +0.15 まで
+  const coverRect = (x1, y1, x2, y2) => { const x = Math.max(M, x1 - 0.02), y = Math.max(BODY - 0.1, y1 - 0.06); return { x, y, w: Math.min(W - M, x2 + 0.02) - x, h: Math.min(BOTTOM + 0.15, y2 + 0.08) - y }; };
+  const belowRect = bottom => ({ x: M, y: bottom + 0.15, w: BW, h: Math.max(0, BOTTOM - bottom - 0.15) });
+
   // ページごとの棒の区分（名前・値・範囲）。前面の札が、下の図の比べる相手を隠していないかを点検する
   const UNDERBARS = {};
   const noteUnder = (n, items) => { if (!inBox && !inDim && page) (UNDERBARS[page] ??= []).push({ n, items }); };
@@ -1533,9 +1599,11 @@ function createDeck(pres, opts = {}) {
   //   rect: { x, y, w, h（札の中の描ける範囲）, cols: { x0, x1, top, bottom }（colBars に展開して渡す）, rows: { x0, x1, y0, bottom }（hBars に展開して渡す） }
   //   下の図は薄いので、見る所は前面だけ：下の図の主役の値は数えず、前面の図に見る所の値を1つ置く
   const frontCard = (s, c) => {
-    const { x, y, w, h, title, draw } = c, name = String(title || "前面の札");
-    if (![x, y, w, h].every(Number.isFinite) || typeof draw !== "function") throw new Error("前面の札（overlay）には x・y・w・h と draw が要る");
-    if (x < M - 0.01 || x + w > W - M + 0.01 || y < BODY - 0.01 || y + h > BOTTOM + 0.01) warn(`前面の札（${name}）が本文の領域からはみ出す（x ${M}〜${(W - M).toFixed(2)}、y ${BODY}〜${BOTTOM} の中に置く）`);
+    const { title, draw } = c, name = String(title || "前面の札");
+    if (![c.x, c.y, c.w, c.h].every(Number.isFinite) || typeof draw !== "function") throw new Error("前面の札（overlay）には x・y・w・h と draw が要る");
+    const { x, y, w, h, fitted } = fitToFigure(`前面の札（${name}）`, c);
+    // 薄くした図の列を丸ごと覆うと、区分名の下端まで要るので、下は +0.15 まで。上は図の見出しの行まで
+    if (x < M - 0.01 || x + w > W - M + 0.01 || y < BODY - 0.11 || y + h > BOTTOM + 0.16) warn(`前面の札（${name}）が本文の領域からはみ出す（x ${M}〜${(W - M).toFixed(2)}、y ${BODY}〜${BOTTOM} の中に置く）`);
     const hit = b => b && x < b.x + b.w && b.x < x + w && y < b.y + b.h && b.y < y + h;
     const from = c.from;
     if (from && ![from.x, from.y, from.w, from.h].every(Number.isFinite)) throw new Error(`前面の札（${name}）の from は { x, y, w, h } で渡す`);
@@ -1576,12 +1644,12 @@ function createDeck(pres, opts = {}) {
     if (from) {
       const ya = Math.max(y, from.y), yz = Math.min(y + h, from.y + from.h), xa = Math.max(x, from.x), xz = Math.min(x + w, from.x + from.w);
       const side = yz - ya > 0.1 && (x >= from.x + from.w || x + w <= from.x), stack = xz - xa > 0.1 && (y >= from.y + from.h || y + h <= from.y);
-      if (!side && !stack) warn(`前面の札（${name}）が、掘り下げる元（from）の横にも上下にも無く、矢印をまっすぐ引けない。札を from と向き合う位置に置く`);
+      if (!side && !stack) { if (!fitted) warn(`前面の札（${name}）が、掘り下げる元（from）の横にも上下にも無く、矢印をまっすぐ引けない。札を from と向き合う位置に置く`); }
       else {
         const at = c.arrowAt ?? (side ? (ya + yz) / 2 : (xa + xz) / 2);
         const p0 = side ? [x >= from.x + from.w ? from.x + from.w + 0.02 : from.x - 0.02, at] : [at, y >= from.y + from.h ? from.y + from.h + 0.02 : from.y - 0.02];
         const p1 = side ? [x >= from.x + from.w ? x - 0.01 : x + w + 0.01, at] : [at, y >= from.y + from.h ? y - 0.01 : y + h + 0.01];
-        if (Math.abs(p1[0] - p0[0]) + Math.abs(p1[1] - p0[1]) < 0.2) warn(`前面の札（${name}）と掘り下げる元（from）の間が狭く、矢印が見えない。0.3 以上空ける`);
+        if (Math.abs(p1[0] - p0[0]) + Math.abs(p1[1] - p0[1]) < 0.2) { if (!fitted) warn(`前面の札（${name}）と掘り下げる元（from）の間が狭く、矢印が見えない。0.3 以上空ける`); }
         else polyArrow(s, [p0, p1], { color: C.emph, width: 2 });
       }
     }
@@ -2030,7 +2098,9 @@ function createDeck(pres, opts = {}) {
     };
     noteUnder(nC, o.cats.map((c, i) => ({ name: String(c), values: ser.map(sr => fmt(sr.values[i])), focus: ser.some((_, m) => focus.has(`${m}:${i}`)),
       boxes: ser.flatMap((_, m) => (o.values === false ? [BAR[`${m}:${i}`]] : [BAR[`${m}:${i}`], LAB[`${m}:${i}`]])) })));
-    return { barX, barTop, cx: i => x0 + i * slot + slot / 2, base, k, bw, span, texts: o.values === false ? [] : Object.values(LAB) };
+    // cover(i, j)：前面の箱・札で、i〜j の区分の列（棒・値・区分名）を丸ごと覆う置き場所（j を省くと右の端まで）
+    const cover = (i, j = nC - 1) => coverRect(x0 + i * slot, Math.min(BODY + 0.4, ...Object.values(LAB).map(b => b.y)), x0 + (j + 1) * slot, bottom + 0.66);
+    return { barX, barTop, cx: i => x0 + i * slot + slot / 2, base, k, bw, span, cover, texts: o.values === false ? [] : Object.values(LAB) };
   };
   // 横棒（図形）：0の線から左右に伸ばす。項目の名前が長い、正負が混ざる、全体と内訳を並べるときに使う
   //   o.rows: [{ label, value, strong?, focusValue?, problem? } | null（行の間を空ける）], o.groups: [{ from, to, text }]（連続した行をまとめた注記。空いた側に縦線と文字）
@@ -2109,7 +2179,9 @@ function createDeck(pres, opts = {}) {
       return { x: X0 - 0.04, y: ys[i] - 0.06, w: z - X0 + 0.04, h: ys[j] + bh - ys[i] + 0.12, names: rows.slice(i, j + 1).filter(Boolean).map(r => String(r.label)) };
     };
     noteUnder(rows.filter(Boolean).length, rows.map((r, i) => r && { name: String(r.label), values: [fmt(r.value)], focus: !!(r.focusValue || r.strong), boxes: OBS.filter(b => b.i === i) }).filter(Boolean));
-    return { ys, Z, k, bh, row, texts: OBS.filter(b => b.txt) };
+    // cover(i, j)：i〜j 行目（項目名・棒・値）を幅いっぱいに丸ごと覆う置き場所（j を省くと下の端まで）、below()＝棒の下の空き
+    const cover = (i, j = rows.length - 1) => coverRect(X0, ys[i] - 0.04, X1, j === rows.length - 1 ? BOTTOM : ys[j] + bh + 0.04);
+    return { ys, Z, k, bh, row, cover, below: () => belowRect(last), texts: OBS.filter(b => b.txt) };
   };
   // 帯でつなぐ積み上げ棒（配分の推移）：棒の高さは総量に比例、同じ区分を隣の期と帯でつなぐ。区分名は右端の棒の横に置き、凡例は置かない
   //   o.cats: [期], o.series: [{ name, color, values, main? }]（下から積む順。main の区分は名前を太字に）
@@ -2723,7 +2795,9 @@ function createDeck(pres, opts = {}) {
     // 推奨・選ぶ列：列全体（札〜最後の行）を ink の枠1本で囲む。帯の上に重ねる
     o.cols.forEach((c, j) => { if (c.strong) { const top = headY - (c.tag ? 0.32 : 0.06); rect(s, xs[j][0] - cg / 2, top, xs[j][1] + cg, bottom - top + 0.06, null, { color: C.emph, width: 1.75 }); } });
     if (bottom > BOTTOM + 0.05) warn(`比較の表の下端 ${bottom.toFixed(2)} が本文の下端を超える（主張に効く行だけ残す。文字は小さくしない）`);
-    return { xs, rowY, bottom, judgeY };
+    // 前面の箱の置き場所：cover(j, k)＝j〜k の列を丸ごと覆う（k を省くと右の端まで）、below()＝表の下の空き
+    return { xs, rowY, bottom, judgeY,
+      cover: (j, k = o.cols.length - 1) => coverRect(xs[j][0] - cg / 2, headY - 0.32, xs[k][0] + xs[k][1] + cg / 2, bottom), below: () => belowRect(bottom) };
   };
 
   // ---- 構造の図 ----
@@ -2859,6 +2933,9 @@ function createDeck(pres, opts = {}) {
     const head = i => ({ x: colX(i), y: hy, w: cw, h: hh });
     return {
       col: i => ({ x: colX(i), y: hy, w: cw, h: figBottom - hy }), head, box: head,
+      // 前面の箱の置き場所：cover(i, j)＝i〜j の工程の列を丸ごと覆う（j を省くと右の端まで）、below()＝図の下の空き
+      cover: (i, j = n - 1) => coverRect(colX(i), hy, colX(j) + cw, figBottom),
+      below: () => belowRect(figBottom),
       time: i => ({ x: colX(i), y: ty, w: cw, h: th }), cell: (r, i) => ({ x: colX(i), y: rowY[r], w: cw, h: rh[r] }),
       cx: i => colX(i) + cw / 2, rowY, rowH: rh, bottom: figBottom,
     };
@@ -4890,7 +4967,11 @@ function createDeck(pres, opts = {}) {
     });
     const bottom = (o.bands || []).length ? BY + BH : BY - 0.18;
     if (bottom > BOTTOM + 0.05) warn(`段階の道の下端 ${bottom.toFixed(2)} が本文の下端を超える（条件を減らす）`);
-    return { col: i => ({ x: X(i) - CW / 2, y: WY - 0.04, w: CW, h: bottom - WY + 0.1 }), X, CW, K0, KP, right: X(n - 1) + CW / 2, bottom };
+    // col(i)：段階の列。下の帯がほかの段階にまたがるときは、帯の手前まで（濃く残す所が、帯を途中で切らない）
+    const wide = i => (o.bands || []).some(b => b.from <= i && i <= b.to && b.from !== b.to);
+    return { col: i => ({ x: X(i) - CW / 2, y: WY - 0.04, w: CW, h: (wide(i) ? BY - 0.06 : bottom + 0.06) - (WY - 0.04) }), X, CW, K0, KP, right: X(n - 1) + CW / 2, bottom,
+      // 前面の箱の置き場所：cover(i, j)＝i〜j の段階を丸ごと覆う（j を省くと右の端まで）、below()＝図の下の空き
+      cover: (i, j = n - 1) => coverRect(X(i) - CW / 2, WY - 0.04, X(j) + CW / 2, bottom), below: () => belowRect(bottom) };
   };
 
   // 1つの形は、1つの資料の中で1つの意味にだけ使う：同じ部品を、別の中身でもう一度呼んだら知らせる
